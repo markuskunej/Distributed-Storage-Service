@@ -23,7 +23,7 @@ public class KVServer extends Thread implements IKVServer {
 	private int cacheSize;
     private CacheStrategy strategy;
 
-	private KVDB db;
+	private KVDB storage;
 	private KVCache cache;
 
 	/**
@@ -84,7 +84,7 @@ public class KVServer extends Thread implements IKVServer {
 	public boolean inStorage(String key) {
 		// ---------- TEST ----------
 		try {
-            boolean exists = (db.getKV(key) != null);
+            boolean exists = (storage.getKV(key) != null);
 
             if (exists) {
 				logger.info("Key :: " + key + " found in storage. \n");
@@ -122,7 +122,6 @@ public class KVServer extends Thread implements IKVServer {
 	@Override
 	public String getKV(String key) throws Exception {
 		// ---------- TEST ----------
-		// add db to get from storage?
 		try {
 			if (getCacheStrategy() != CacheStrategy.None) {
 
@@ -138,6 +137,23 @@ public class KVServer extends Thread implements IKVServer {
 					return null;
 				}
 			}
+
+			// Reaching this point means the key was not found in cache
+			// Deep storage needs to be checked
+			String val_2 = storage.getKV(key);
+
+			if (getCacheStrategy() != CacheStrategy.None && val_2 != null) {
+				// Insert found value into the cache
+				cache.putKV(key, value);
+
+				logger.info("Key :: " + key + ", Value :: " + val_2 + "\n");
+
+				return val_2;
+			} else {
+				logger.info("Key :: " + key + " has no associated value. \n");
+
+				return null;
+			}
 		} catch (IOException e) {
 			logger.error("IO Failure. \n", e);
 			
@@ -148,7 +164,7 @@ public class KVServer extends Thread implements IKVServer {
 	@Override
 	public StatusType putKV(String key, String value) throws Exception {
 		// ---------- TEST ----------
-		// add db to put into storage?
+		// add storage to put into storage?
 		try {
 			if (getCacheStrategy() != CacheStrategy.None) {
 				// check if cache already contains key-value pair
@@ -156,12 +172,21 @@ public class KVServer extends Thread implements IKVServer {
 
 				if (test != null) {
 					if (value == null) {
-						logger.info("Deleting key-value pair from cache: Key :: " + key + ", Value :: " + value + "\n");
-						// IDK HOW TO DELETE AH
+						Boolean status = cache.delete(key);
+
+						if (status) {
+							logger.info("Deleting key-value pair from cache: Key :: " + key + ", Value :: " + value + "\n");
+						} else {
+							logger.info("Deletion of Key :: " + key + ", Value :: " + value + " from cache failed. \n");
+						}
 					} else {
 						logger.info("Overwriting key-value pair into cache: Key :: " + key + ", Value :: " + value + "\n");
-						cache.putKV(key, value);
+
 						// MAYBE DELETE FIRST THEN PUT AGAIN?
+						//cache.delete(key); 
+
+						cache.putKV(key, value);
+						storage.putKV(key, value);
 					}
 				} else {
 					if (value == null) {
@@ -170,8 +195,9 @@ public class KVServer extends Thread implements IKVServer {
 						// return null since it failed
 					} else {
 						logger.info("Put into cache: Key :: " + key + ", Value :: " + value);
+						
 						cache.putKV(key, value);
-						// put into cache on success
+						storage.putKV(key, value);
 					}
 				}
 			}
@@ -197,7 +223,7 @@ public class KVServer extends Thread implements IKVServer {
 		try {
             clearCache();
             logger.info("Clear Storage. \n");
-            db.clear();
+            storage.clear();
         } catch (IOException e) {
             logger.error("Cannot clear Storage. \n", e);
         }
@@ -231,7 +257,8 @@ public class KVServer extends Thread implements IKVServer {
 	public void kill() {
 		// ---------- TEST ----------
 		this.running = false;
-        try {
+        
+		try {
             logger.info("Terminating Server. \n");
             client.stop();
             serverSocket.close();
