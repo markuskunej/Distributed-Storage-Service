@@ -30,4 +30,8 @@ public class KVMessage implements Serializable, IKVMessage {
 	public StatusType getStatus() {
 		return status;
 	}
+
+	public String getMsg() {
+		return this.key + " " + this.value + " " + this.status.name();
+	}
 }

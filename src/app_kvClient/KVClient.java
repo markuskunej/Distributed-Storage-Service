@@ -80,8 +80,11 @@ public class KVClient implements IKVClient, ClientSocketListener {
         } else if (tokens[0].equals("put")) {
             if (kvStore != null && kvStore.isRunning()) {
                 if (tokens.length == 3) {
+                    logger.info("in put3");
                     try {
+                        logger.info("before kvstore put");
                         kvStore.put(tokens[1], tokens[2]);
+                        logger.info("after kvstore put");
                     } catch (Exception e) {
                         printError("Unable to send message!");
                         disconnect();
@@ -151,6 +154,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
     @Override
     public void newConnection(String hostname, int port) throws Exception, UnknownHostException, IOException {
         kvStore = new KVStore(hostname, port);
+        kvStore.connect();
         kvStore.addListener(this);
         kvStore.start();
     }
@@ -221,7 +225,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
     @Override
     public void handleNewMessage(KVMessage msg) {
         if (!stop) {
-            // System.out.println(msg.getMsg());
+            System.out.println(msg.getMsg());
             System.out.print(PROMPT);
         }
     }

@@ -40,11 +40,6 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 	public KVStore(String address, int port) {
 		this.address = address;
 		this.port = port;
-		try {
-			this.connect();
-		} catch (Exception e) {
-			logger.error("Unable to connect");
-		}
 	}
 
 	/**
@@ -140,22 +135,87 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		byte[] msgBytes = SerializationUtils.serialize(msg);
 		output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
+		logger.info("Send message:\t '" + msg.getMsg() + "'");
 	}
 
 	@Override
 	public KVMessage receiveMessage() throws IOException {
-		return (KVMessage) SerializationUtils.deserialize(input);
+
+		int index = 0;
+		byte[] msgBytes = null, tmp = null;
+		byte[] bufferBytes = new byte[BUFFER_SIZE];
+
+		/* read first char from stream */
+		logger.info("kvstore before read");
+		byte read = (byte) input.read();
+		logger.info("kvstore after read");
+
+		boolean reading = true;
+
+		while (read != 13 && reading) {/* carriage return */
+			/* if buffer filled, copy to msg array */
+			if (index == BUFFER_SIZE) {
+				if (msgBytes == null) {
+					tmp = new byte[BUFFER_SIZE];
+					System.arraycopy(bufferBytes, 0, tmp, 0, BUFFER_SIZE);
+				} else {
+					tmp = new byte[msgBytes.length + BUFFER_SIZE];
+					System.arraycopy(msgBytes, 0, tmp, 0, msgBytes.length);
+					System.arraycopy(bufferBytes, 0, tmp, msgBytes.length,
+							BUFFER_SIZE);
+				}
+
+				msgBytes = tmp;
+				bufferBytes = new byte[BUFFER_SIZE];
+				index = 0;
+			}
+
+			/* only read valid characters, i.e. letters and numbers */
+			if ((read > 31 && read < 127)) {
+				bufferBytes[index] = read;
+				index++;
+			}
+
+			/* stop reading is DROP_SIZE is reached */
+			if (msgBytes != null && msgBytes.length + index >= DROP_SIZE) {
+				reading = false;
+			}
+
+			/* read next char from stream */
+			read = (byte) input.read();
+		}
+
+		logger.info("after read loop");
+		if (msgBytes == null) {
+			tmp = new byte[index];
+			System.arraycopy(bufferBytes, 0, tmp, 0, index);
+		} else {
+			tmp = new byte[msgBytes.length + index];
+			System.arraycopy(msgBytes, 0, tmp, 0, msgBytes.length);
+			System.arraycopy(bufferBytes, 0, tmp, msgBytes.length, index);
+		}
+		logger.info("after array copies");
+
+		msgBytes = tmp;
+
+		KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
+		logger.info("Receive message:\t '" + receivedMsg.getMsg() + "'");
+
+		return receivedMsg;
 	}
 
 	@Override
 	public KVMessage put(String key, String value) throws Exception {
-		sendMessage(new KVMessage(key, value, StatusType.PUT));
-		return receiveMessage();
+		KVMessage msg = new KVMessage(key, value, StatusType.PUT);
+		sendMessage(msg);
+		logger.info("after sendMessage in kvstore");
+		return msg;
 	}
 
 	@Override
 	public KVMessage get(String key) throws Exception {
-		sendMessage(new KVMessage(key, null, StatusType.GET));
-		return receiveMessage();
+		KVMessage msg = new KVMessage(key, null, StatusType.GET);
+		sendMessage(msg);
+		return msg;
 	}
 }
