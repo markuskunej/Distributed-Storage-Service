@@ -199,7 +199,7 @@ public class KVServer extends Thread implements IKVServer {
             logger.info("Clear Storage. \n");
             db.clear();
         } catch (IOException e) {
-            logger.error("Cannot clear Storage. ");
+            logger.error("Cannot clear Storage. \n", e);
         }
 	}
 
@@ -229,7 +229,15 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public void kill() {
-		// TODO Auto-generated method stub
+		// ---------- TEST ----------
+		this.running = false;
+        try {
+            logger.info("Terminating Server. \n");
+            client.stop();
+            serverSocket.close();
+        } catch (IOException e) {
+            logger.error("Error! Termination failure on port: " + port, e);
+        }
 	}
 
 	private boolean isRunning() {
