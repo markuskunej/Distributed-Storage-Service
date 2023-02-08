@@ -49,12 +49,10 @@ public class KVServer extends Thread implements IKVServer {
 	@Override
 	public int getPort() {
 		return this.port;
-		// try just port?
 	}
 
 	@Override
 	public String getHostname() {
-		// ---------- TEST ----------
 		try {
             InetAddress sv = InetAddress.getLocalHost();
 
@@ -68,21 +66,16 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public CacheStrategy getCacheStrategy() {
-		// ---------- TEST ----------
 		return this.strategy;
-		// try just strategy?
 	}
 
 	@Override
 	public int getCacheSize() {
-		// ---------- TEST ----------
 		return this.cacheSize;
-		// try just cacheSize?
 	}
 
 	@Override
 	public boolean inStorage(String key) {
-		// ---------- TEST ----------
 		try {
             boolean exists = (storage.getKV(key) != null);
 
@@ -103,7 +96,6 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public boolean inCache(String key) {
-		// ---------- TEST ----------
 		if (this.strategy == CacheStrategy.None) {
 			return false;
 		}
@@ -121,18 +113,17 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public String getKV(String key) throws Exception {
-		// ---------- TEST ----------
 		try {
 			if (getCacheStrategy() != CacheStrategy.None) {
 
 				String val = cache.getKV(key);
 	
 				if (val != null) {
-					logger.info("Key :: " + key + ", Value :: " + val + "\n");
+					logger.info("GET_SUCCESS " + key + val + "\n");
 	
 					return val;
 				} else {
-					logger.info("Key :: " + key + " has no associated value. \n");
+					logger.info("GET_ERROR " + key + "\n");
 
 					return null;
 				}
@@ -163,8 +154,6 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public StatusType putKV(String key, String value) throws Exception {
-		// ---------- TEST ----------
-		// add storage to put into storage?
 		try {
 			if (getCacheStrategy() != CacheStrategy.None) {
 				// check if cache already contains key-value pair
@@ -177,27 +166,24 @@ public class KVServer extends Thread implements IKVServer {
 						if (status) {
 							logger.info("Deleting key-value pair from cache: Key :: " + key + ", Value :: " + value + "\n");
 						} else {
-							logger.info("Deletion of Key :: " + key + ", Value :: " + value + " from cache failed. \n");
+							logger.info("FAILED " + "cache deletion of " + key + ", " + value + "\n");
 						}
 					} else {
-						logger.info("Overwriting key-value pair into cache: Key :: " + key + ", Value :: " + value + "\n");
-
-						// MAYBE DELETE FIRST THEN PUT AGAIN?
-						//cache.delete(key); 
-
 						cache.putKV(key, value);
 						storage.putKV(key, value);
+
+						logger.info("PUT_UPDATE " + key + value + "\n");
 					}
 				} else {
 					if (value == null) {
-						logger.info("Error: delete failed - key-value pair does not exist in cache \n");
+						logger.info("PUT_ERROR " + key + "\n");
 						return null;
 						// return null since it failed
 					} else {
-						logger.info("Put into cache: Key :: " + key + ", Value :: " + value);
-						
 						cache.putKV(key, value);
 						storage.putKV(key, value);
+
+						logger.info("PUT_SUCCESS " + key + value + "\n");
 					}
 				}
 			}
@@ -210,7 +196,6 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public void clearCache() {
-		// ---------- TEST ----------
 		logger.info("Clear Cache. \n");
         if (this.strategy != CacheStrategy.None) {
             cache.clear();
@@ -219,7 +204,6 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public void clearStorage() {
-		// ---------- TEST ----------
 		try {
             clearCache();
             logger.info("Clear Storage. \n");
@@ -255,7 +239,6 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public void kill() {
-		// ---------- TEST ----------
 		this.running = false;
         
 		try {
@@ -269,7 +252,6 @@ public class KVServer extends Thread implements IKVServer {
 
 	private boolean isRunning() {
 		return this.running;
-		// try just running?
 	}
 
 	@Override
