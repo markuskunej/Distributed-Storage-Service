@@ -20,6 +20,11 @@ public class KVServer extends Thread implements IKVServer {
 	private int port;
 	private ServerSocket serverSocket;
 	private boolean running;
+	private int cacheSize;
+    private CacheStrategy strategy;
+
+	private KVDB db;
+	private KVCache cache;
 
 	/**
 	 * Start KV Server at given port
@@ -35,64 +40,167 @@ public class KVServer extends Thread implements IKVServer {
 	 */
 	public KVServer(int port, int cacheSize, String strategy) {
 		this.port = port;
+		this.cacheSize = cacheSize;
+		this.strategy = CacheStrategy.valueOf(strategy);
+
+		initializeServer();
 	}
 
 	@Override
 	public int getPort() {
-		// TODO Auto-generated method stub
 		return this.port;
+		// try just port?
 	}
 
 	@Override
 	public String getHostname() {
-		// TODO Auto-generated method stub
-		return null;
+		// ---------- TEST ----------
+		try {
+            InetAddress sv = InetAddress.getLocalHost();
+
+            return sv.getHostName();
+        } catch (UnknownHostException ex) {
+            logger.error("Error! Unknown Host. \n", ex);
+			
+            return null;
+        }
 	}
 
 	@Override
 	public CacheStrategy getCacheStrategy() {
-		// TODO Auto-generated method stub
-		return IKVServer.CacheStrategy.None;
+		// ---------- TEST ----------
+		return this.strategy;
+		// try just strategy?
 	}
 
 	@Override
 	public int getCacheSize() {
-		// TODO Auto-generated method stub
-		return -1;
+		// ---------- TEST ----------
+		return this.cacheSize;
+		// try just cacheSize?
 	}
 
 	@Override
 	public boolean inStorage(String key) {
-		// TODO Auto-generated method stub
-		return false;
+		// ---------- TEST ----------
+		try {
+            boolean exists = (db.getKV(key) != null);
+
+            if (exists) {
+				logger.info("Key :: " + key + " found in storage. \n");
+			} else {
+				logger.info("Key :: " + key + " not found in storage. \n");
+			}
+
+            return exists;
+
+        } catch (IOException e) {
+            logger.error("IO Failure. \n", e);
+
+            return false;
+        }
 	}
 
 	@Override
 	public boolean inCache(String key) {
-		// TODO Auto-generated method stub
-		return false;
+		// ---------- TEST ----------
+		if (this.strategy == CacheStrategy.None) {
+			return false;
+		}
+
+        boolean exists = (cache.getKV(key) != null);
+
+        if (exists) { 
+			logger.info("Key :: " + key + " found in cache. \n");
+		} else {
+			logger.info("Key :: " + key + " not found in cache. \n");
+		}
+
+        return exists;
 	}
 
 	@Override
 	public String getKV(String key) throws Exception {
-		// TODO Auto-generated method stub
-		return "";
+		// ---------- TEST ----------
+		// add db to get from storage?
+		try {
+			if (getCacheStrategy() != CacheStrategy.None) {
+
+				String val = cache.getKV(key);
+	
+				if (val != null) {
+					logger.info("Key :: " + key + ", Value :: " + val + "\n");
+	
+					return val;
+				} else {
+					logger.info("Key :: " + key + " has no associated value. \n");
+
+					return null;
+				}
+			}
+		} catch (IOException e) {
+			logger.error("IO Failure. \n", e);
+			
+			return null;
+		}
 	}
 
 	@Override
 	public StatusType putKV(String key, String value) throws Exception {
-		// TODO Auto-generated method stub
-		return StatusType.PUT_ERROR;
+		// ---------- TEST ----------
+		// add db to put into storage?
+		try {
+			if (getCacheStrategy() != CacheStrategy.None) {
+				// check if cache already contains key-value pair
+				String test = cache.getKV(key, value);
+
+				if (test != null) {
+					if (value == null) {
+						logger.info("Deleting key-value pair from cache: Key :: " + key + ", Value :: " + value + "\n");
+						// IDK HOW TO DELETE AH
+					} else {
+						logger.info("Overwriting key-value pair into cache: Key :: " + key + ", Value :: " + value + "\n");
+						cache.putKV(key, value);
+						// MAYBE DELETE FIRST THEN PUT AGAIN?
+					}
+				} else {
+					if (value == null) {
+						logger.info("Error: delete failed - key-value pair does not exist in cache \n");
+						return null;
+						// return null since it failed
+					} else {
+						logger.info("Put into cache: Key :: " + key + ", Value :: " + value);
+						cache.putKV(key, value);
+						// put into cache on success
+					}
+				}
+			}
+		} catch (IOException e) {
+			logger.error("IO Failure. \n", e);
+			
+			return null;
+		}
 	}
 
 	@Override
 	public void clearCache() {
-		// TODO Auto-generated method stub
+		// ---------- TEST ----------
+		logger.info("Clear Cache. \n");
+        if (this.strategy != CacheStrategy.None) {
+            cache.clear();
+		}
 	}
 
 	@Override
 	public void clearStorage() {
-		// TODO Auto-generated method stub
+		// ---------- TEST ----------
+		try {
+            clearCache();
+            logger.info("Clear Storage. \n");
+            db.clear();
+        } catch (IOException e) {
+            logger.error("Cannot clear Storage. ");
+        }
 	}
 
 	@Override
@@ -109,7 +217,7 @@ public class KVServer extends Thread implements IKVServer {
 
 					logger.info("Connected to "
 							+ client.getInetAddress().getHostName()
-							+ " on port " + client.getPort());
+							+ " on port " + client.getPort() + "\n");
 				} catch (IOException e) {
 					logger.error("Error! " +
 							"Unable to establish connection. \n", e);
@@ -126,6 +234,7 @@ public class KVServer extends Thread implements IKVServer {
 
 	private boolean isRunning() {
 		return this.running;
+		// try just running?
 	}
 
 	@Override
@@ -135,22 +244,22 @@ public class KVServer extends Thread implements IKVServer {
 			serverSocket.close();
 		} catch (IOException e) {
 			logger.error("Error! " +
-					"Unable to close socket on port: " + port, e);
+					"Unable to close socket on port: " + port + "\n", e);
 		}
 	}
 
 	private boolean initializeServer() {
-		logger.info("Initialize server ...");
+		logger.info("Initialize server ... \n");
 		try {
 			serverSocket = new ServerSocket(port);
 			logger.info("Server listening on port: "
-					+ serverSocket.getLocalPort());
+					+ serverSocket.getLocalPort() + "\n");
 			return true;
 
 		} catch (IOException e) {
-			logger.error("Error! Cannot open server socket:");
+			logger.error("Error! Cannot open server socket: \n");
 			if (e instanceof BindException) {
-				logger.error("Port " + port + " is already bound!");
+				logger.error("Port " + port + " is already bound! \n");
 			}
 			return false;
 		}
