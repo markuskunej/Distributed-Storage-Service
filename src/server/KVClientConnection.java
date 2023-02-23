@@ -62,11 +62,8 @@ public class KVClientConnection implements Runnable {
 
 			while (isOpen) {
 				try {
-					logger.info("before received message");
 					KVMessage latestMsg = receiveMessage();
-					logger.info("after received message");
 					KVMessage responseMsg = handleMessage(latestMsg);
-					logger.info("after handled message");
 					sendMessage(responseMsg);
 
 					/*
@@ -106,7 +103,8 @@ public class KVClientConnection implements Runnable {
 	 * @throws IOException some I/O error regarding the output stream
 	 */
 	public void sendMessage(KVMessage msg) throws IOException {
-		byte[] msgBytes = SerializationUtils.serialize(msg);
+		//byte[] msgBytes = SerializationUtils.serialize(msg);
+		byte[] msgBytes = msg.getMsgBytes();
 		output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
 		logger.info("SEND \t<"
@@ -121,19 +119,11 @@ public class KVClientConnection implements Runnable {
 		byte[] msgBytes = null, tmp = null;
 		byte[] bufferBytes = new byte[BUFFER_SIZE];
 
-		logger.info("before first read");
 
 		/* read first char from stream */
 		byte read = (byte) input.read();
-		logger.info("after first read");
 		boolean reading = true;
 
-		// logger.info("First Char: " + read);
-		// Check if stream is closed (read returns -1)
-		// if (read == -1){
-		// TextMessage msg = new TextMessage("");
-		// return msg;
-		// }
 
 		while (/* read != 13 && */ read != 10 && read != -1 && reading) {/* CR, LF, error */
 			/* if buffer filled, copy to msg array */
@@ -165,10 +155,7 @@ public class KVClientConnection implements Runnable {
 			/* read next char from stream */
 
 			read = (byte) input.read();
-			logger.info("in reading loop");
 		}
-
-		logger.info("out of reading loop");
 
 		if (msgBytes == null) {
 			tmp = new byte[index];
@@ -181,7 +168,8 @@ public class KVClientConnection implements Runnable {
 
 		msgBytes = tmp;
 
-		KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
+		//KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
+		KVMessage receivedMsg = new KVMessage(msgBytes);
 
 		/* build final String */
 		logger.info("RECEIVE \t<"
@@ -194,7 +182,6 @@ public class KVClientConnection implements Runnable {
 	private KVMessage handleMessage(KVMessage msg) throws Exception {
 		String returnValue = msg.getValue();
 		StatusType returnStatus = msg.getStatus();
-
 		if (msg.getStatus() == StatusType.PUT) {
 			try {
 				returnStatus = kvServer.putKV(msg.getKey(), msg.getValue());
@@ -205,9 +192,14 @@ public class KVClientConnection implements Runnable {
 		} else if (msg.getStatus() == StatusType.GET) {
 			try {
 				returnValue = kvServer.getKV(msg.getKey());
-				returnStatus = StatusType.GET_SUCCESS;
+				if (returnValue != null) {
+					returnStatus = StatusType.GET_SUCCESS;
+				} else {
+					returnStatus = StatusType.GET_ERROR;
+				}
+				
 			} catch (Exception e) {
-				logger.error("Error trying putKV");
+				logger.error("Error trying getKV");
 				returnStatus = StatusType.GET_ERROR;
 			}
 		}

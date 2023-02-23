@@ -5,7 +5,7 @@ import org.junit.Test;
 import client.KVStore;
 import junit.framework.TestCase;
 import shared.messages.KVMessage;
-import shared.messages.KVMessage.StatusType;
+import shared.messages.IKVMessage.StatusType;
 
 
 public class InteractionTest extends TestCase {

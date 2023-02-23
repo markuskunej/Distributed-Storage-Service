@@ -80,11 +80,8 @@ public class KVClient implements IKVClient, ClientSocketListener {
         } else if (tokens[0].equals("put")) {
             if (kvStore != null && kvStore.isRunning()) {
                 if (tokens.length == 3) {
-                    logger.info("in put3");
                     try {
-                        logger.info("before kvstore put");
                         kvStore.put(tokens[1], tokens[2]);
-                        logger.info("after kvstore put");
                     } catch (Exception e) {
                         printError("Unable to send message!");
                         disconnect();
@@ -225,7 +222,20 @@ public class KVClient implements IKVClient, ClientSocketListener {
     @Override
     public void handleNewMessage(KVMessage msg) {
         if (!stop) {
-            System.out.println(msg.getMsg());
+            StatusType status = msg.getStatus();
+            if (status == StatusType.STRING) {
+                System.out.println(msg.getKey());
+            } else if (status == StatusType.PUT_SUCCESS) {
+                System.out.println("PUT SUCCESS");
+            } else if (status == StatusType.PUT_UPDATE) {
+                System.out.println("PUT UPDATE");
+            } else if (status == StatusType.PUT_ERROR) {
+                System.out.println("PUT ERROR");
+            } else if (status == StatusType.GET_SUCCESS) {
+                System.out.println(msg.getValue());
+            } else if (status == StatusType.GET_ERROR) {
+                System.out.println("Could not find value for the given key");
+            }
             System.out.print(PROMPT);
         }
     }

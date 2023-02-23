@@ -3,6 +3,7 @@ package app_kvServer;
 import java.net.BindException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.UnknownHostException;
 import java.io.IOException;
 
 import org.apache.log4j.Level;
@@ -23,8 +24,8 @@ public class KVServer extends Thread implements IKVServer {
 	private int cacheSize;
     private CacheStrategy strategy;
 
-	private KVDB storage;
-	private KVCache cache;
+	//private KVDB storage;
+	//private KVCache cache;
 
 	/**
 	 * Start KV Server at given port
@@ -41,9 +42,8 @@ public class KVServer extends Thread implements IKVServer {
 	public KVServer(int port, int cacheSize, String strategy) {
 		this.port = port;
 		this.cacheSize = cacheSize;
-		this.strategy = CacheStrategy.valueOf(strategy);
-
-		initializeServer();
+		//this.strategy = CacheStrategy.valueOf(strategy);
+		this.strategy = CacheStrategy.None;
 	}
 
 	@Override
@@ -53,15 +53,16 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public String getHostname() {
-		try {
-            InetAddress sv = InetAddress.getLocalHost();
+		// try {
+        //     InetAddress sv = InetAddress.getLocalHost();
 
-            return sv.getHostName();
-        } catch (UnknownHostException ex) {
-            logger.error("Error! Unknown Host. \n", ex);
+        //     return sv.getHostName();
+        // } catch (UnknownHostException ex) {
+        //     logger.error("Error! Unknown Host. \n", ex);
 			
-            return null;
-        }
+        //     return null;
+        // }
+		return null;
 	}
 
 	@Override
@@ -77,8 +78,9 @@ public class KVServer extends Thread implements IKVServer {
 	@Override
 	public boolean inStorage(String key) {
 		try {
-            boolean exists = (storage.getKV(key) != null);
-
+            //boolean exists = (storage.getKV(key) != null);
+			boolean exists = false;
+			
             if (exists) {
 				logger.info("Key :: " + key + " found in storage. \n");
 			} else {
@@ -87,7 +89,7 @@ public class KVServer extends Thread implements IKVServer {
 
             return exists;
 
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.error("IO Failure. \n", e);
 
             return false;
@@ -100,8 +102,8 @@ public class KVServer extends Thread implements IKVServer {
 			return false;
 		}
 
-        boolean exists = (cache.getKV(key) != null);
-
+        //boolean exists = (cache.getKV(key) != null);
+		boolean exists = false;
         if (exists) { 
 			logger.info("Key :: " + key + " found in cache. \n");
 		} else {
@@ -116,8 +118,8 @@ public class KVServer extends Thread implements IKVServer {
 		try {
 			if (getCacheStrategy() != CacheStrategy.None) {
 
-				String val = cache.getKV(key);
-	
+				//String val = cache.getKV(key);
+				String val = null;
 				if (val != null) {
 					logger.info("GET_SUCCESS " + key + val + "\n");
 	
@@ -131,11 +133,12 @@ public class KVServer extends Thread implements IKVServer {
 
 			// Reaching this point means the key was not found in cache
 			// Deep storage needs to be checked
-			String val_2 = storage.getKV(key);
+			//String val_2 = storage.getKV(key);
+			String val_2 = null;
 
 			if (getCacheStrategy() != CacheStrategy.None && val_2 != null) {
 				// Insert found value into the cache
-				cache.putKV(key, value);
+				//cache.putKV(key, val_2);
 
 				logger.info("Key :: " + key + ", Value :: " + val_2 + "\n");
 
@@ -145,7 +148,7 @@ public class KVServer extends Thread implements IKVServer {
 
 				return null;
 			}
-		} catch (IOException e) {
+		} catch (Exception e) {
 			logger.error("IO Failure. \n", e);
 			
 			return null;
@@ -157,11 +160,12 @@ public class KVServer extends Thread implements IKVServer {
 		try {
 			if (getCacheStrategy() != CacheStrategy.None) {
 				// check if cache already contains key-value pair
-				String test = cache.getKV(key, value);
-
+				//String test = cache.getKV(key, value);
+				String test = null;
 				if (test != null) {
 					if (value == null) {
-						Boolean status = cache.delete(key);
+						//Boolean status = cache.delete(key);
+						Boolean status = false;
 
 						if (status) {
 							logger.info("Deleting key-value pair from cache: Key :: " + key + ", Value :: " + value + "\n");
@@ -169,28 +173,30 @@ public class KVServer extends Thread implements IKVServer {
 							logger.info("FAILED " + "cache deletion of " + key + ", " + value + "\n");
 						}
 					} else {
-						cache.putKV(key, value);
-						storage.putKV(key, value);
+						//cache.putKV(key, value);
+						//storage.putKV(key, value);
 
 						logger.info("PUT_UPDATE " + key + value + "\n");
 					}
 				} else {
 					if (value == null) {
 						logger.info("PUT_ERROR " + key + "\n");
-						return null;
+						return StatusType.PUT_ERROR;
 						// return null since it failed
 					} else {
-						cache.putKV(key, value);
-						storage.putKV(key, value);
+						//cache.putKV(key, value);
+						//storage.putKV(key, value);
 
 						logger.info("PUT_SUCCESS " + key + value + "\n");
+						return StatusType.PUT_SUCCESS;
 					}
 				}
 			}
-		} catch (IOException e) {
+			return StatusType.PUT_ERROR;
+		} catch (Exception e) {
 			logger.error("IO Failure. \n", e);
 			
-			return null;
+			return StatusType.PUT_ERROR;
 		}
 	}
 
@@ -198,7 +204,7 @@ public class KVServer extends Thread implements IKVServer {
 	public void clearCache() {
 		logger.info("Clear Cache. \n");
         if (this.strategy != CacheStrategy.None) {
-            cache.clear();
+            //cache.clear();
 		}
 	}
 
@@ -207,8 +213,8 @@ public class KVServer extends Thread implements IKVServer {
 		try {
             clearCache();
             logger.info("Clear Storage. \n");
-            storage.clear();
-        } catch (IOException e) {
+            //storage.clear();
+        } catch (Exception e) {
             logger.error("Cannot clear Storage. \n", e);
         }
 	}
@@ -243,7 +249,7 @@ public class KVServer extends Thread implements IKVServer {
         
 		try {
             logger.info("Terminating Server. \n");
-            client.stop();
+            //client.stop();
             serverSocket.close();
         } catch (IOException e) {
             logger.error("Error! Termination failure on port: " + port, e);

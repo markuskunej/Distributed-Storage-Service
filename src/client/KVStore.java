@@ -132,7 +132,8 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 
 	@Override
 	public void sendMessage(KVMessage msg) throws IOException {
-		byte[] msgBytes = SerializationUtils.serialize(msg);
+		//byte[] msgBytes = SerializationUtils.serialize(msg);
+		byte[] msgBytes = msg.getMsgBytes();
 		output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
 		logger.info("Send message:\t '" + msg.getMsg() + "'");
@@ -146,9 +147,7 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		byte[] bufferBytes = new byte[BUFFER_SIZE];
 
 		/* read first char from stream */
-		logger.info("kvstore before read");
 		byte read = (byte) input.read();
-		logger.info("kvstore after read");
 
 		boolean reading = true;
 
@@ -185,7 +184,6 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 			read = (byte) input.read();
 		}
 
-		logger.info("after read loop");
 		if (msgBytes == null) {
 			tmp = new byte[index];
 			System.arraycopy(bufferBytes, 0, tmp, 0, index);
@@ -194,14 +192,14 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 			System.arraycopy(msgBytes, 0, tmp, 0, msgBytes.length);
 			System.arraycopy(bufferBytes, 0, tmp, msgBytes.length, index);
 		}
-		logger.info("after array copies");
 
 		msgBytes = tmp;
 
-		KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
-		logger.info("Receive message:\t '" + receivedMsg.getMsg() + "'");
+		//KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
+		KVMessage msg = new KVMessage(msgBytes);
+		logger.info("Receive message:\t '" + msg.getMsg() + "'");
 
-		return receivedMsg;
+		return msg;
 	}
 
 	@Override
