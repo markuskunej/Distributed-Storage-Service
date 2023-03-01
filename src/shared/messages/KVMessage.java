@@ -3,7 +3,7 @@ package shared.messages;
 import java.io.Serializable;
 
 public class KVMessage implements Serializable, IKVMessage {
-	private static final long serialVersionUID = 5549512212003782618L;	
+	private static final long serialVersionUID = 5549512212003782618L;
 	private StatusType status;
 	private String key;
 	private String value;
@@ -22,23 +22,23 @@ public class KVMessage implements Serializable, IKVMessage {
 	}
 
 	/**
-     * Constructs a KVMessage object with a given array of bytes that 
-     * forms the message.
-     * 
-     * @param bytes the bytes that form the message in ASCII coding.
-     */
+	 * Constructs a KVMessage object with a given array of bytes that
+	 * forms the message.
+	 * 
+	 * @param bytes the bytes that form the message in ASCII coding.
+	 */
 	public KVMessage(byte[] bytes) {
 		this.msgBytes = addCtrChars(bytes);
 		this.msg = new String(msgBytes).trim();
 		setKV(msg);
 	}
-	
+
 	/**
-     * Constructs a KVMessage object with a given String that
-     * forms the message. 
-     * 
-     * @param msg the String that forms the message.
-     */
+	 * Constructs a KVMessage object with a given String that
+	 * forms the message.
+	 * 
+	 * @param msg the String that forms the message.
+	 */
 	public KVMessage(String msg) {
 		this.msg = msg;
 		setKV(msg);
@@ -52,7 +52,11 @@ public class KVMessage implements Serializable, IKVMessage {
 
 	@Override
 	public String getValue() {
-		return value.trim();
+		if (value != null) {
+			return value.trim();
+		} else {
+			return null;
+		}
 	}
 
 	@Override
@@ -72,8 +76,8 @@ public class KVMessage implements Serializable, IKVMessage {
 	/**
 	 * Returns an array of bytes that represent the ASCII coded message content.
 	 * 
-	 * @return the content of this message as an array of bytes 
-	 * 		in ASCII coding.
+	 * @return the content of this message as an array of bytes
+	 *         in ASCII coding.
 	 */
 	public byte[] getMsgBytes() {
 		return msgBytes;
@@ -93,28 +97,28 @@ public class KVMessage implements Serializable, IKVMessage {
 	}
 
 	private byte[] addCtrChars(byte[] bytes) {
-		byte[] ctrBytes = new byte[]{LINE_FEED, RETURN};
+		byte[] ctrBytes = new byte[] { LINE_FEED, RETURN };
 		byte[] tmp = new byte[bytes.length + ctrBytes.length];
-		
+
 		System.arraycopy(bytes, 0, tmp, 0, bytes.length);
 		System.arraycopy(ctrBytes, 0, tmp, bytes.length, ctrBytes.length);
-		
-		return tmp;		
+
+		return tmp;
 	}
 
-	private byte[] toByteArray(String s){
+	private byte[] toByteArray(String s) {
 		byte[] bytes = s.getBytes();
-		byte[] ctrBytes = new byte[]{LINE_FEED, RETURN};
+		byte[] ctrBytes = new byte[] { LINE_FEED, RETURN };
 		byte[] tmp = new byte[bytes.length + ctrBytes.length];
-		
+
 		System.arraycopy(bytes, 0, tmp, 0, bytes.length);
 		System.arraycopy(ctrBytes, 0, tmp, bytes.length, ctrBytes.length);
-		
-		return tmp;		
+
+		return tmp;
 	}
 
 	private String buildMsg() {
-		if (value != null) {
+		if ((value != null) && (value != "")) {
 			return key.trim() + "~" + value.trim() + "~" + status.name();
 		} else {
 			return key.trim() + "~" + status.name();

@@ -4,14 +4,21 @@ import java.net.BindException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
-
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Properties;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
 import logger.LogSetup;
 
 import server.KVClientConnection;
+import shared.messages.IKVMessage;
+import shared.messages.KVMessage;
 import shared.messages.IKVMessage.StatusType;
 
 public class KVServer extends Thread implements IKVServer {
@@ -22,10 +29,8 @@ public class KVServer extends Thread implements IKVServer {
 	private ServerSocket serverSocket;
 	private boolean running;
 	private int cacheSize;
-    private CacheStrategy strategy;
-
-	//private KVDB storage;
-	//private KVCache cache;
+	private CacheStrategy strategy;
+	private String storage_file_path;
 
 	/**
 	 * Start KV Server at given port
@@ -42,8 +47,11 @@ public class KVServer extends Thread implements IKVServer {
 	public KVServer(int port, int cacheSize, String strategy) {
 		this.port = port;
 		this.cacheSize = cacheSize;
-		//this.strategy = CacheStrategy.valueOf(strategy);
+		// this.strategy = CacheStrategy.valueOf(strategy);
 		this.strategy = CacheStrategy.None;
+		this.storage_file_path = "src/data/kv.properties";
+
+		initializeStorage();
 	}
 
 	@Override
@@ -54,14 +62,14 @@ public class KVServer extends Thread implements IKVServer {
 	@Override
 	public String getHostname() {
 		// try {
-        //     InetAddress sv = InetAddress.getLocalHost();
+		// InetAddress sv = InetAddress.getLocalHost();
 
-        //     return sv.getHostName();
-        // } catch (UnknownHostException ex) {
-        //     logger.error("Error! Unknown Host. \n", ex);
-			
-        //     return null;
-        // }
+		// return sv.getHostName();
+		// } catch (UnknownHostException ex) {
+		// logger.error("Error! Unknown Host. \n", ex);
+
+		// return null;
+		// }
 		return null;
 	}
 
@@ -77,23 +85,24 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public boolean inStorage(String key) {
-		try {
-            //boolean exists = (storage.getKV(key) != null);
-			boolean exists = false;
-			
-            if (exists) {
-				logger.info("Key :: " + key + " found in storage. \n");
-			} else {
-				logger.info("Key :: " + key + " not found in storage. \n");
-			}
+		// try {
+		// // boolean exists = (storage.getKV(key) != null);
+		// boolean exists = false;
 
-            return exists;
+		// if (exists) {
+		// logger.info("Key :: " + key + " found in storage. \n");
+		// } else {
+		// logger.info("Key :: " + key + " not found in storage. \n");
+		// }
 
-        } catch (Exception e) {
-            logger.error("IO Failure. \n", e);
+		// return exists;
 
-            return false;
-        }
+		// } catch (Exception e) {
+		// logger.error("IO Failure. \n", e);
+
+		// return false;
+		// }
+		return false;
 	}
 
 	@Override
@@ -102,100 +111,91 @@ public class KVServer extends Thread implements IKVServer {
 			return false;
 		}
 
-        //boolean exists = (cache.getKV(key) != null);
+		// boolean exists = (cache.getKV(key) != null);
 		boolean exists = false;
-        if (exists) { 
+		if (exists) {
 			logger.info("Key :: " + key + " found in cache. \n");
 		} else {
 			logger.info("Key :: " + key + " not found in cache. \n");
 		}
 
-        return exists;
+		return exists;
 	}
 
 	@Override
 	public String getKV(String key) throws Exception {
-		try {
-			if (getCacheStrategy() != CacheStrategy.None) {
+		try (InputStream input = new FileInputStream(storage_file_path)) {
 
-				//String val = cache.getKV(key);
-				String val = null;
-				if (val != null) {
-					logger.info("GET_SUCCESS " + key + val + "\n");
-	
-					return val;
-				} else {
-					logger.info("GET_ERROR " + key + "\n");
+			Properties prop = new Properties();
 
-					return null;
-				}
-			}
+			// load the kv storage
+			prop.load(input);
 
-			// Reaching this point means the key was not found in cache
-			// Deep storage needs to be checked
-			//String val_2 = storage.getKV(key);
-			String val_2 = null;
+			// get value
+			String value = prop.getProperty(key);
 
-			if (getCacheStrategy() != CacheStrategy.None && val_2 != null) {
-				// Insert found value into the cache
-				//cache.putKV(key, val_2);
-
-				logger.info("Key :: " + key + ", Value :: " + val_2 + "\n");
-
-				return val_2;
+			if (value != null) {
+				logger.info("Key :: " + key + ", Value :: " + value + "\n");
 			} else {
+				// value doesn't exist
 				logger.info("Key :: " + key + " has no associated value. \n");
-
-				return null;
 			}
+
+			input.close();
+
+			return value;
+
 		} catch (Exception e) {
-			logger.error("IO Failure. \n", e);
-			
+			logger.error("ERROR in KVServer.getKV \n", e);
+
 			return null;
 		}
 	}
 
 	@Override
 	public StatusType putKV(String key, String value) throws Exception {
-		try {
-			if (getCacheStrategy() != CacheStrategy.None) {
-				// check if cache already contains key-value pair
-				//String test = cache.getKV(key, value);
-				String test = null;
-				if (test != null) {
-					if (value == null) {
-						//Boolean status = cache.delete(key);
-						Boolean status = false;
+		try (InputStream input = new FileInputStream(storage_file_path)) {
+			StatusType status;
+			Properties prop = new Properties();
 
-						if (status) {
-							logger.info("Deleting key-value pair from cache: Key :: " + key + ", Value :: " + value + "\n");
-						} else {
-							logger.info("FAILED " + "cache deletion of " + key + ", " + value + "\n");
-						}
-					} else {
-						//cache.putKV(key, value);
-						//storage.putKV(key, value);
+			prop.load(input);
+			input.close();
 
-						logger.info("PUT_UPDATE " + key + value + "\n");
-					}
+			if ((value == null) || (value == "")) {
+				// delete value from key
+				Object prev_val = prop.remove(key);
+				if (prev_val != null) {
+					status = StatusType.DELETE_SUCCESS;
+					logger.info("Deleting key-value pair from storage: Key :: " + key + ", Value :: " + prev_val.toString() + "\n");
 				} else {
-					if (value == null) {
-						logger.info("PUT_ERROR " + key + "\n");
-						return StatusType.PUT_ERROR;
-						// return null since it failed
-					} else {
-						//cache.putKV(key, value);
-						//storage.putKV(key, value);
+					status = StatusType.DELETE_ERROR;
+					logger.info("Cannot delete key-value pair from storage, it doesn't exist" + "\n");
+				}
+			} else {
+				Object prev_val = prop.setProperty(key, value);
 
-						logger.info("PUT_SUCCESS " + key + value + "\n");
-						return StatusType.PUT_SUCCESS;
-					}
+				if (prev_val == null) {
+					// Didn't exist before
+					logger.info("Adding key-value pair to storage: Key :: " + key + ", Value :: " + value + "\n");
+					status = StatusType.PUT_SUCCESS;
+				} else {
+					// Already exists, update instead
+					logger.info("Updating key-value pair for Key :: " + key + ", from Value :: " + prev_val.toString()
+							+ " to Value :: " + value + "\n");
+					status = StatusType.PUT_UPDATE;
 				}
 			}
-			return StatusType.PUT_ERROR;
+
+			OutputStream output = new FileOutputStream(storage_file_path);
+			// store key-values back in file
+			prop.store(output, null);
+			output.close();
+
+			return status;
+
 		} catch (Exception e) {
 			logger.error("IO Failure. \n", e);
-			
+
 			return StatusType.PUT_ERROR;
 		}
 	}
@@ -203,20 +203,20 @@ public class KVServer extends Thread implements IKVServer {
 	@Override
 	public void clearCache() {
 		logger.info("Clear Cache. \n");
-        if (this.strategy != CacheStrategy.None) {
-            //cache.clear();
+		if (this.strategy != CacheStrategy.None) {
+			// cache.clear();
 		}
 	}
 
 	@Override
 	public void clearStorage() {
 		try {
-            clearCache();
-            logger.info("Clear Storage. \n");
-            //storage.clear();
-        } catch (Exception e) {
-            logger.error("Cannot clear Storage. \n", e);
-        }
+			clearCache();
+			logger.info("Clear Storage. \n");
+			// storage.clear();
+		} catch (Exception e) {
+			logger.error("Cannot clear Storage. \n", e);
+		}
 	}
 
 	@Override
@@ -246,14 +246,14 @@ public class KVServer extends Thread implements IKVServer {
 	@Override
 	public void kill() {
 		this.running = false;
-        
+
 		try {
-            logger.info("Terminating Server. \n");
-            //client.stop();
-            serverSocket.close();
-        } catch (IOException e) {
-            logger.error("Error! Termination failure on port: " + port, e);
-        }
+			logger.info("Terminating Server. \n");
+			// client.stop();
+			serverSocket.close();
+		} catch (IOException e) {
+			logger.error("Error! Termination failure on port: " + port, e);
+		}
 	}
 
 	private boolean isRunning() {
@@ -285,6 +285,20 @@ public class KVServer extends Thread implements IKVServer {
 				logger.error("Port " + port + " is already bound! \n");
 			}
 			return false;
+		}
+	}
+
+	private void initializeStorage() {
+		try {
+			// see if file exists, if not, create it
+			File f = new File(storage_file_path);
+
+			if (f.createNewFile()) {
+				logger.info("Created storage file at " + storage_file_path + '\n');
+			}
+		} catch (IOException e) {
+			System.out.println("Error! Unable initialize Storage.");
+			e.printStackTrace();
 		}
 	}
 

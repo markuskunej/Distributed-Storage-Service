@@ -235,6 +235,10 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 System.out.println(msg.getValue());
             } else if (status == StatusType.GET_ERROR) {
                 System.out.println("Could not find value for the given key");
+            } else if (status == StatusType.DELETE_SUCCESS) {
+                System.out.println("DELETE SUCCESS");
+            } else if (status == StatusType.DELETE_ERROR) {
+                System.out.println("DELETE ERROR");
             }
             System.out.print(PROMPT);
         }
