@@ -1,0 +1,210 @@
+package server;
+
+import java.io.InputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.Socket;
+
+import org.apache.log4j.*;
+
+import app_kvServer.KVServer;
+
+import org.apache.commons.lang3.SerializationUtils;
+
+import shared.messages.ECSMessage;
+import shared.messages.IECSMessage.StatusType;
+
+/**
+ * Represents a connection end point for a particular ECS that is
+ * connected to the server. This class is responsible for message reception
+ * and sending.
+ * The class also implements the echo functionality. Thus whenever a message
+ * is received it is going to be echoed back to the ECS.
+ */
+public class KVECSConnection implements Runnable {
+
+	private static Logger logger = Logger.getRootLogger();
+
+	private boolean isOpen;
+	private static final int BUFFER_SIZE = 1024;
+	private static final int DROP_SIZE = 128 * BUFFER_SIZE;
+
+	private Socket kvECSSocket;
+	private InputStream input;
+	private OutputStream output;
+	private KVServer kvServer;
+
+	/**
+	 * Constructs a new ECSConnection object for a given TCP socket.
+	 * 
+	 * @param ECSSocket the Socket object for the ECS connection.
+	 */
+	public KVECSConnection(Socket ECSSocket, KVServer server) {
+		this.kvECSSocket = ECSSocket;
+		this.isOpen = true;
+		this.kvServer = server;
+	}
+
+	/**
+	 * Initializes and starts the ECS connection.
+	 * Loops until the connection is closed or aborted by the ECS.
+	 */
+	public void run() {
+		try {
+			output = kvECSSocket.getOutputStream();
+			input = kvECSSocket.getInputStream();
+
+			sendMessage(new KVMessage(
+					"Connection to KVServer established: "
+							+ kvECSSocket.getLocalAddress() + " / "
+							+ kvECSSocket.getLocalPort(),
+					null, StatusType.STRING));
+
+			while (isOpen) {
+				try {
+					KVMessage latestMsg = receiveMessage();
+					KVMessage responseMsg = handleMessage(latestMsg);
+					sendMessage(responseMsg);
+
+					/*
+					 * connection either terminated by the ECS or lost due to
+					 * network problems
+					 */
+				} catch (IOException ioe) {
+					logger.error("Error! Connection lost!");
+					isOpen = false;
+				} catch (Exception e) {
+					logger.error("Error! Connection lost!");
+					isOpen = false;
+				}
+			}
+
+		} catch (IOException ioe) {
+			logger.error("Error! Connection could not be established!", ioe);
+
+		} finally {
+
+			try {
+				if (kvECSSocket != null) {
+					input.close();
+					output.close();
+					kvECSSocket.close();
+				}
+			} catch (IOException ioe) {
+				logger.error("Error! Unable to tear down connection!", ioe);
+			}
+		}
+	}
+
+	/**
+	 * Method sends a KVMessage using this socket.
+	 * 
+	 * @param msg the message that is to be sent.
+	 * @throws IOException some I/O error regarding the output stream
+	 */
+	public void sendMessage(KVMessage msg) throws IOException {
+		//byte[] msgBytes = SerializationUtils.serialize(msg);
+		byte[] msgBytes = msg.getMsgBytes();
+		output.write(msgBytes, 0, msgBytes.length);
+		output.flush();
+		logger.info("SEND \t<"
+				+ kvECSSocket.getInetAddress().getHostAddress() + ":"
+				+ kvECSSocket.getPort() + ">: '"
+				+ msg.getMsg() + "'");
+	}
+
+	private KVMessage receiveMessage() throws IOException {
+
+		int index = 0;
+		byte[] msgBytes = null, tmp = null;
+		byte[] bufferBytes = new byte[BUFFER_SIZE];
+
+
+		/* read first char from stream */
+		byte read = (byte) input.read();
+		boolean reading = true;
+
+
+		while (/* read != 13 && */ read != 10 && read != -1 && reading) {/* CR, LF, error */
+			/* if buffer filled, copy to msg array */
+			if (index == BUFFER_SIZE) {
+				if (msgBytes == null) {
+					tmp = new byte[BUFFER_SIZE];
+					System.arraycopy(bufferBytes, 0, tmp, 0, BUFFER_SIZE);
+				} else {
+					tmp = new byte[msgBytes.length + BUFFER_SIZE];
+					System.arraycopy(msgBytes, 0, tmp, 0, msgBytes.length);
+					System.arraycopy(bufferBytes, 0, tmp, msgBytes.length,
+							BUFFER_SIZE);
+				}
+
+				msgBytes = tmp;
+				bufferBytes = new byte[BUFFER_SIZE];
+				index = 0;
+			}
+
+			/* only read valid characters, i.e. letters and constants */
+			bufferBytes[index] = read;
+			index++;
+
+			/* stop reading is DROP_SIZE is reached */
+			if (msgBytes != null && msgBytes.length + index >= DROP_SIZE) {
+				reading = false;
+			}
+
+			/* read next char from stream */
+
+			read = (byte) input.read();
+		}
+
+		if (msgBytes == null) {
+			tmp = new byte[index];
+			System.arraycopy(bufferBytes, 0, tmp, 0, index);
+		} else {
+			tmp = new byte[msgBytes.length + index];
+			System.arraycopy(msgBytes, 0, tmp, 0, msgBytes.length);
+			System.arraycopy(bufferBytes, 0, tmp, msgBytes.length, index);
+		}
+
+		msgBytes = tmp;
+
+		//KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
+		KVMessage receivedMsg = new KVMessage(msgBytes);
+
+		/* build final String */
+		logger.info("RECEIVE \t<"
+				+ kvECSSocket.getInetAddress().getHostAddress() + ":"
+				+ kvECSSocket.getPort() + ">: '"
+				+ receivedMsg.getMsg().trim() + "'");
+		return receivedMsg;
+	}
+
+	private KVMessage handleMessage(KVMessage msg) throws Exception {
+		String returnValue = msg.getValue();
+		StatusType returnStatus = msg.getStatus();
+		if (msg.getStatus() == StatusType.PUT) {
+			try {
+				returnStatus = kvServer.putKV(msg.getKey(), msg.getValue());
+			} catch (Exception e) {
+				logger.error("Error trying putKV");
+				returnStatus = StatusType.PUT_ERROR;
+			}
+		} else if (msg.getStatus() == StatusType.GET) {
+			try {
+				returnValue = kvServer.getKV(msg.getKey());
+				if (returnValue != null) {
+					returnStatus = StatusType.GET_SUCCESS;
+				} else {
+					returnStatus = StatusType.GET_ERROR;
+				}
+				
+			} catch (Exception e) {
+				logger.error("Error trying getKV");
+				returnStatus = StatusType.GET_ERROR;
+			}
+		}
+
+		return new KVMessage(msg.getKey(), returnValue, returnStatus);
+	}
+
+}

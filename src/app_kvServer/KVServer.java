@@ -31,6 +31,7 @@ public class KVServer extends Thread implements IKVServer {
 	private int cacheSize;
 	private CacheStrategy strategy;
 	private String storage_file_path;
+	private boolean stopped;
 
 	/**
 	 * Start KV Server at given port
@@ -260,6 +261,10 @@ public class KVServer extends Thread implements IKVServer {
 		return this.running;
 	}
 
+	private boolean isStopped() {
+		return this.stopped;
+	}
+
 	@Override
 	public void close() {
 		running = false;
@@ -271,11 +276,23 @@ public class KVServer extends Thread implements IKVServer {
 		}
 	}
 
+	private boolean connectToServer(int server_address, int server_port) {
+		logger.info("Connecting to KVserver on port " + server_port + "\n");
+		kvServerSocket = new Socket(server_address, server_port);
+
+	}
+
+	private boolean connectToECS(int ecs_addr, int ecs_port) {
+		logger.info("Connecting to ECS on port " + server_port + "\n");
+
+
+	}
+
 	private boolean initializeServer() {
-		logger.info("Initialize server ... \n");
+		logger.info("Initialize KVServer ... \n");
 		try {
 			serverSocket = new ServerSocket(port);
-			logger.info("Server listening on port: "
+			logger.info("KVServer listening on port: "
 					+ serverSocket.getLocalPort() + "\n");
 			return true;
 
