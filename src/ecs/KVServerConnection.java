@@ -1,4 +1,4 @@
-package server;
+package ecs;
 
 import java.io.InputStream;
 import java.io.IOException;
@@ -7,21 +7,23 @@ import java.net.Socket;
 
 import org.apache.log4j.*;
 
+import app_kvECS.ECSClient;
 import app_kvServer.KVServer;
 
 import org.apache.commons.lang3.SerializationUtils;
 
-import shared.messages.ECSMessage;
-import shared.messages.IECSMessage.StatusType;
+import shared.messages.IKVMessage;
+import shared.messages.KVMessage;
+import shared.messages.IKVMessage.StatusType;
 
 /**
- * Represents a connection end point for a particular ECS that is
- * connected to the server. This class is responsible for message reception
+ * Represents a connection end point for a particular KVServer that is
+ * connected to the ECS. This class is responsible for message reception
  * and sending.
  * The class also implements the echo functionality. Thus whenever a message
- * is received it is going to be echoed back to the ECS.
+ * is received it is going to be echoed back to the KVServer.
  */
-public class KVECSConnection implements Runnable {
+public class KVServerConnection implements Runnable {
 
 	private static Logger logger = Logger.getRootLogger();
 
@@ -29,35 +31,34 @@ public class KVECSConnection implements Runnable {
 	private static final int BUFFER_SIZE = 1024;
 	private static final int DROP_SIZE = 128 * BUFFER_SIZE;
 
-	private Socket kvECSSocket;
+	private Socket kvServerSocket;
 	private InputStream input;
 	private OutputStream output;
-	private KVServer kvServer;
+	//private ECSClient kvServer;
 
 	/**
-	 * Constructs a new ECSConnection object for a given TCP socket.
+	 * Constructs a new KVServerConnection object for a given TCP socket.
 	 * 
-	 * @param ECSSocket the Socket object for the ECS connection.
+	 * @param kvServerSocket the Socket object for the kvServer connection.
 	 */
-	public KVECSConnection(Socket ECSSocket, KVServer server) {
-		this.kvECSSocket = ECSSocket;
+	public KVServerConnection(Socket kvServerSocket) {
+		this.kvServerSocket = kvServerSocket;
 		this.isOpen = true;
-		this.kvServer = server;
 	}
 
 	/**
-	 * Initializes and starts the ECS connection.
-	 * Loops until the connection is closed or aborted by the ECS.
+	 * Initializes and starts the kvServer connection.
+	 * Loops until the connection is closed or aborted by the KVServer.
 	 */
 	public void run() {
 		try {
-			output = kvECSSocket.getOutputStream();
-			input = kvECSSocket.getInputStream();
+			output = kvServerSocket.getOutputStream();
+			input = kvServerSocket.getInputStream();
 
 			sendMessage(new KVMessage(
 					"Connection to KVServer established: "
-							+ kvECSSocket.getLocalAddress() + " / "
-							+ kvECSSocket.getLocalPort(),
+							+ kvServerSocket.getLocalAddress() + " / "
+							+ kvServerSocket.getLocalPort(),
 					null, StatusType.STRING));
 
 			while (isOpen) {
@@ -85,10 +86,10 @@ public class KVECSConnection implements Runnable {
 		} finally {
 
 			try {
-				if (kvECSSocket != null) {
+				if (kvServerSocket != null) {
 					input.close();
 					output.close();
-					kvECSSocket.close();
+					kvServerSocket.close();
 				}
 			} catch (IOException ioe) {
 				logger.error("Error! Unable to tear down connection!", ioe);
@@ -108,8 +109,8 @@ public class KVECSConnection implements Runnable {
 		output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
 		logger.info("SEND \t<"
-				+ kvECSSocket.getInetAddress().getHostAddress() + ":"
-				+ kvECSSocket.getPort() + ">: '"
+				+ kvServerSocket.getInetAddress().getHostAddress() + ":"
+				+ kvServerSocket.getPort() + ">: '"
 				+ msg.getMsg() + "'");
 	}
 
@@ -173,38 +174,40 @@ public class KVECSConnection implements Runnable {
 
 		/* build final String */
 		logger.info("RECEIVE \t<"
-				+ kvECSSocket.getInetAddress().getHostAddress() + ":"
-				+ kvECSSocket.getPort() + ">: '"
+				+ kvServerSocket.getInetAddress().getHostAddress() + ":"
+				+ kvServerSocket.getPort() + ">: '"
 				+ receivedMsg.getMsg().trim() + "'");
 		return receivedMsg;
 	}
 
 	private KVMessage handleMessage(KVMessage msg) throws Exception {
-		String returnValue = msg.getValue();
-		StatusType returnStatus = msg.getStatus();
-		if (msg.getStatus() == StatusType.PUT) {
-			try {
-				returnStatus = kvServer.putKV(msg.getKey(), msg.getValue());
-			} catch (Exception e) {
-				logger.error("Error trying putKV");
-				returnStatus = StatusType.PUT_ERROR;
-			}
-		} else if (msg.getStatus() == StatusType.GET) {
-			try {
-				returnValue = kvServer.getKV(msg.getKey());
-				if (returnValue != null) {
-					returnStatus = StatusType.GET_SUCCESS;
-				} else {
-					returnStatus = StatusType.GET_ERROR;
-				}
+	// 	String returnValue = msg.getValue();
+	// 	StatusType returnStatus = msg.getStatus();
+	// 	if (msg.getStatus() == StatusType.PUT) {
+	// 		try {
+	// 			returnStatus = kvServer.putKV(msg.getKey(), msg.getValue());
+	// 		} catch (Exception e) {
+	// 			logger.error("Error trying putKV");
+	// 			returnStatus = StatusType.PUT_ERROR;
+	// 		}
+	// 	} else if (msg.getStatus() == StatusType.GET) {
+	// 		try {
+	// 			returnValue = kvServer.getKV(msg.getKey());
+	// 			if (returnValue != null) {
+	// 				returnStatus = StatusType.GET_SUCCESS;
+	// 			} else {
+	// 				returnStatus = StatusType.GET_ERROR;
+	// 			}
 				
-			} catch (Exception e) {
-				logger.error("Error trying getKV");
-				returnStatus = StatusType.GET_ERROR;
-			}
-		}
+	// 		} catch (Exception e) {
+	// 			logger.error("Error trying getKV");
+	// 			returnStatus = StatusType.GET_ERROR;
+	// 		}
+	// 	}
 
-		return new KVMessage(msg.getKey(), returnValue, returnStatus);
+	// 	return new KVMessage(msg.getKey(), returnValue, returnStatus);
+	// }
+		return new KVMessage("Placeholder", "Placeholder", StatusType.STRING);
 	}
 
 }

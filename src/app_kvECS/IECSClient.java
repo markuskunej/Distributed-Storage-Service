@@ -6,19 +6,6 @@ import java.util.Collection;
 import ecs.IECSNode;
 
 public interface IECSClient {
-    /**
-     * Starts the storage service by calling start() on all KVServer instances that participate in the service.\
-     * @throws Exception    some meaningfull exception on failure
-     * @return  true on success, false on failure
-     */
-    public boolean start() throws Exception;
-
-    /**
-     * Stops the service; all participating KVServers are stopped for processing client requests but the processes remain running.
-     * @throws Exception    some meaningfull exception on failure
-     * @return  true on success, false on failure
-     */
-    public boolean stop() throws Exception;
 
     /**
      * Stops all server instances and exits the remote processes.

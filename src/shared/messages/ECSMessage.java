@@ -2,7 +2,7 @@ package shared.messages;
 
 import java.io.Serializable;
 
-public class KVMessage implements Serializable, IKVMessage {
+public class ECSMessage implements Serializable, IECSMessage {
 	private static final long serialVersionUID = 5549512212003782618L;
 	private StatusType status;
 	private String key;
@@ -13,7 +13,7 @@ public class KVMessage implements Serializable, IKVMessage {
 	private static final char LINE_FEED = 0x0A;
 	private static final char RETURN = 0x0D;
 
-	public KVMessage(String k, String v, StatusType st) {
+	public ECSMessage(String k, String v, StatusType st) {
 		this.key = k;
 		this.value = v;
 		this.status = st;
@@ -22,24 +22,24 @@ public class KVMessage implements Serializable, IKVMessage {
 	}
 
 	/**
-	 * Constructs a KVMessage object with a given array of bytes that
+	 * Constructs a ECSMessage object with a given array of bytes that
 	 * forms the message.
 	 * 
 	 * @param bytes the bytes that form the message in ASCII coding.
 	 */
-	public KVMessage(byte[] bytes) {
+	public ECSMessage(byte[] bytes) {
 		this.msgBytes = addCtrChars(bytes);
 		this.msg = new String(msgBytes).trim();
 		setKV(msg);
 	}
 
 	/**
-	 * Constructs a KVMessage object with a given String that
+	 * Constructs a ECSMessage object with a given String that
 	 * forms the message.
 	 * 
 	 * @param msg the String that forms the message.
 	 */
-	public KVMessage(String msg) {
+	public ECSMessage(String msg) {
 		this.msg = msg;
 		setKV(msg);
 		this.msgBytes = toByteArray(msg);
@@ -65,7 +65,7 @@ public class KVMessage implements Serializable, IKVMessage {
 	}
 
 	/**
-	 * Returns the content of this KVMessage as a String.
+	 * Returns the content of this ECSMessage as a String.
 	 * 
 	 * @return the content of this message in String format.
 	 */

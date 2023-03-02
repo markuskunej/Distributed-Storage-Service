@@ -4,6 +4,7 @@ import java.net.BindException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.text.ParseException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -11,6 +12,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Properties;
+import org.apache.commons.cli.*;
+import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.CommandLineParser;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
@@ -25,13 +29,20 @@ public class KVServer extends Thread implements IKVServer {
 
 	private static Logger logger = Logger.getRootLogger();
 
+	private String ecs_addr;
+	private int ecs_port;
+	private String address;
 	private int port;
 	private ServerSocket serverSocket;
+	private Socket kvServerSocket;
+	private Socket ecsSocket;
 	private boolean running;
 	private int cacheSize;
 	private CacheStrategy strategy;
 	private String storage_file_path;
 	private boolean stopped;
+	private OutputStream ecs_output;
+	private InputStream ecs_input;
 
 	/**
 	 * Start KV Server at given port
@@ -45,13 +56,23 @@ public class KVServer extends Thread implements IKVServer {
 	 *                  "LRU",
 	 *                  and "LFU".
 	 */
-	public KVServer(int port, int cacheSize, String strategy) {
+	public KVServer(String ecs_ip_port, String address, int port, int cacheSize, String strategy) {
+		String[] ecs = ecs_ip_port.split(":");
+		this.ecs_addr = ecs[0];
+		this.ecs_port = Integer.parseInt(ecs[1]);
+		this.address = address;
 		this.port = port;
 		this.cacheSize = cacheSize;
 		// this.strategy = CacheStrategy.valueOf(strategy);
 		this.strategy = CacheStrategy.None;
-		this.storage_file_path = "src/data/kv.properties";
-
+		this.storage_file_path = "src/data/" + port + ".properties";
+		try {
+			connectToECS();
+		} catch (Exception e) {
+			System.out.println("Error! Could not establish connection with ECS Server.");
+			e.printStackTrace();
+			System.exit(1);
+		}
 		initializeStorage();
 	}
 
@@ -225,23 +246,34 @@ public class KVServer extends Thread implements IKVServer {
 
 		running = initializeServer();
 
-		if (serverSocket != null) {
-			while (isRunning()) {
-				try {
-					Socket client = serverSocket.accept();
-					KVClientConnection connection = new KVClientConnection(client, this);
-					new Thread(connection).start();
+		try {
+			ecs_output = ecsSocket.getOutputStream();
+			ecs_input = ecsSocket.getInputStream();
 
-					logger.info("Connected to "
-							+ client.getInetAddress().getHostName()
-							+ " on port " + client.getPort() + "\n");
-				} catch (IOException e) {
-					logger.error("Error! " +
-							"Unable to establish connection. \n", e);
+			if (serverSocket != null) {
+				while (isRunning()) {
+					try {
+						Socket client = serverSocket.accept();
+						KVClientConnection connection = new KVClientConnection(client, this);
+						new Thread(connection).start();
+
+						logger.info("Connected to "
+								+ client.getInetAddress().getHostName()
+								+ " on port " + client.getPort() + "\n");
+					} catch (IOException e) {
+						logger.error("Error! " +
+								"Unable to establish connection. \n", e);
+					}
 				}
 			}
+			logger.info("Server stopped.");
+		} catch (IOException ioe) {
+			logger.error("Connection to ecs could not be established.");
+		} finally {
+			if (isRunning()) {
+				close();
+			}
 		}
-		logger.info("Server stopped.");
 	}
 
 	@Override
@@ -276,16 +308,17 @@ public class KVServer extends Thread implements IKVServer {
 		}
 	}
 
-	private boolean connectToServer(int server_address, int server_port) {
+	private boolean connectToServer(String server_address, int server_port) throws Exception {
 		logger.info("Connecting to KVserver on port " + server_port + "\n");
 		kvServerSocket = new Socket(server_address, server_port);
-
+		
+		return false;
 	}
 
-	private boolean connectToECS(int ecs_addr, int ecs_port) {
-		logger.info("Connecting to ECS on port " + server_port + "\n");
-
-
+	private void connectToECS() throws Exception {
+		logger.info("Connecting to ECS on ip: " + this.ecs_addr + " port: " + this.ecs_port + "\n");
+		ecsSocket = new Socket(this.ecs_addr, this.ecs_port);
+		logger.info("Connection to ECS established");
 	}
 
 	private boolean initializeServer() {
@@ -320,23 +353,64 @@ public class KVServer extends Thread implements IKVServer {
 	}
 
 	public static void main(String[] args) {
-		try {
-			new LogSetup("logs/server.log", Level.ALL);
-			if (args.length != 1) {
-				System.out.println("Error! Invalid number of arguments!");
-				System.out.println("Usage: Server <port>!");
-			} else {
-				int port = Integer.parseInt(args[0]);
-				new KVServer(port, 1, "").start();
-			}
-		} catch (IOException e) {
+		String ecs_ip_port;
+		String address_str;
+		int port_int;
+
+		if ((args[0].equals("-b")) && (args[2].equals("-a")) && (args[4].equals("-p"))) {
+
+			ecs_ip_port = args[1];
+			address_str = args[3];
+			port_int = Integer.parseInt(args[5]);
+
+			try {
+				new LogSetup("logs/server" + port_int + ".log", Level.ALL);
+			} catch (IOException e) {
 			System.out.println("Error! Unable to initialize logger!");
 			e.printStackTrace();
 			System.exit(1);
-		} catch (NumberFormatException nfe) {
-			System.out.println("Error! Invalid argument <port>! Not a number!");
-			System.out.println("Usage: Server <port>!");
-			System.exit(1);
+			}
+
+			new KVServer(ecs_ip_port, address_str, port_int, 1, "None").start();
+		} else {
+			System.out.println("Error! Incorrect arguments. Expected -b <ecs_ip>:<ecs_address> -a <address> -p <port>");
 		}
-	}
+		// Options options = new Options();
+
+		// Option ecs_address = new Option("b", "ecs<ip>:<port>", true, "ECS IP address and port");
+        // ecs_address.setRequired(true);
+        // options.addOption(ecs_address);
+
+        // Option address = new Option("a", "address", true, "IP adress");
+        // address.setRequired(true);
+        // options.addOption(address);
+
+        // Option port = new Option("p", "port", true, "Port");
+        // port.setRequired(true);
+        // options.addOption(port);
+
+        // CommandLineParser parser = new DefaultParser();
+        // CommandLine cmd = null;
+        // HelpFormatter formatter = new HelpFormatter();
+
+        // try {
+
+		// 	new LogSetup("logs/server" + port + ".log", Level.ALL);
+            
+        //     cmd = parser.parse(options, args);
+
+		// } catch (IOException e) {
+		// 	System.out.println("Error! Unable to initialize logger!");
+		// 	e.printStackTrace();
+		// 	System.exit(1);
+		// } catch (ParseException e) {
+		// 	System.out.println(e.getMessage());
+		// 	formatter.printHelp("utility-name", options);
+		// 	System.exit(1);
+		// }
+
+		// String ecs_ip_port = cmd.getOptionValue("ecs<ip>:<port>");
+        // String address_str = cmd.getOptionValue("address");
+        // int port_int = Integer.parseInt(cmd.getOptionValue("port"));
+    }
 }
