@@ -13,6 +13,7 @@ import java.text.ParseException;
 import java.util.Collection;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.cli.*;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
@@ -30,7 +31,7 @@ public class ECSClient extends Thread implements IECSClient {
 	private boolean running;
     private String addr;
     private int port;
-    private TreeMap<BigInteger, String> metadata;
+    private TreeMap<String, String> metadata;
 
 
     public ECSClient(String addr, int port) {
@@ -87,22 +88,27 @@ public class ECSClient extends Thread implements IECSClient {
         return null;
     }
 
-    private BigInteger hash(String input_str) {
-        MessageDigest md = MessageDigest.getInstance("MD5");
-        byte[] MD5digest = md.digest(input_str.getBytes());
+    private String hash(String input_str) {
+        // MessageDigest md = MessageDigest.getInstance("MD5");
+        // byte[] MD5digest = md.digest(input_str.getBytes());
 
-        return new BigInteger(1, MD5digest);
+        // return new BigInteger(1, MD5digest);
+        return DigestUtils.md5Hex(input_str);
     }
 
     private void addToMetaData(String server_ip_port) {
-        BigInteger hash_value = hash(server_ip_port);
+        String hash_value = hash(server_ip_port);
 
         metadata.put(hash_value, server_ip_port);
         logger.info("Added " + server_ip_port + " to metadata.");
     }
 
+    private void updateMetaData() {
+        
+    }
+
     private void removeFromMetaData(String server_ip_port) {
-        BigInteger hash_value = hash(server_ip_port);
+        String hash_value = hash(server_ip_port);
         
         String prev_value = metadata.remove(hash_value);
 
@@ -125,7 +131,7 @@ public class ECSClient extends Thread implements IECSClient {
 			while (isRunning()) {
 				try {
 					Socket kvServer = ECSServerSocket.accept();
-					KVServerConnection connection = new KVServerConnection(kvServer);
+					KVServerConnection connection = new KVServerConnection(kvServer, this);
 					new Thread(connection).start();
 
 					logger.info("Connected to "

@@ -34,16 +34,17 @@ public class KVServerConnection implements Runnable {
 	private Socket kvServerSocket;
 	private InputStream input;
 	private OutputStream output;
-	//private ECSClient kvServer;
+	private ECSClient ecsServer;
 
 	/**
 	 * Constructs a new KVServerConnection object for a given TCP socket.
 	 * 
 	 * @param kvServerSocket the Socket object for the kvServer connection.
 	 */
-	public KVServerConnection(Socket kvServerSocket) {
+	public KVServerConnection(Socket kvServerSocket, ECSClient ecsClient) {
 		this.kvServerSocket = kvServerSocket;
 		this.isOpen = true;
+		this.ecsServer = ecsClient; 
 	}
 
 	/**

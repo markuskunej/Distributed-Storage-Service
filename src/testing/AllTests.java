@@ -4,6 +4,7 @@ import java.io.IOException;
 
 import org.apache.log4j.Level;
 
+import app_kvECS.ECSClient;
 import app_kvServer.KVServer;
 import junit.framework.Test;
 import junit.framework.TestSuite;
@@ -15,7 +16,8 @@ public class AllTests {
 	static {
 		try {
 			new LogSetup("logs/testing/test.log", Level.ERROR);
-			new KVServer(50000, 10, "FIFO").start();
+			new ECSClient("localhost", 7551).start();
+			//new KVServer(50000, 10, "FIFO").start();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
