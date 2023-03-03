@@ -13,7 +13,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Properties;
 import org.apache.commons.cli.*;
-import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
@@ -39,10 +39,11 @@ public class KVServer extends Thread implements IKVServer {
 	private boolean running;
 	private int cacheSize;
 	private CacheStrategy strategy;
-	private String storage_file_path;
+	private String fileName;
 	private boolean stopped;
 	private OutputStream ecs_output;
 	private InputStream ecs_input;
+	private String dataDir;
 
 	/**
 	 * Start KV Server at given port
@@ -56,16 +57,15 @@ public class KVServer extends Thread implements IKVServer {
 	 *                  "LRU",
 	 *                  and "LFU".
 	 */
-	public KVServer(String ecs_ip_port, String address, int port, int cacheSize, String strategy) {
+	public KVServer(String ecs_ip_port, String address, int port, int cacheSize, CacheStrategy strategy, String dataDir) {
 		String[] ecs = ecs_ip_port.split(":");
 		this.ecs_addr = ecs[0];
 		this.ecs_port = Integer.parseInt(ecs[1]);
 		this.address = address;
 		this.port = port;
 		this.cacheSize = cacheSize;
-		// this.strategy = CacheStrategy.valueOf(strategy);
-		this.strategy = CacheStrategy.None;
-		this.storage_file_path = "src/data/" + port + ".properties";
+		this.strategy = strategy;
+		this.dataDir = dataDir;
 		try {
 			connectToECS();
 		} catch (Exception e) {
@@ -146,7 +146,7 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public String getKV(String key) throws Exception {
-		try (InputStream input = new FileInputStream(storage_file_path)) {
+		try (InputStream input = new FileInputStream(fileName)) {
 
 			Properties prop = new Properties();
 
@@ -176,7 +176,7 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public StatusType putKV(String key, String value) throws Exception {
-		try (InputStream input = new FileInputStream(storage_file_path)) {
+		try (InputStream input = new FileInputStream(fileName)) {
 			StatusType status;
 			Properties prop = new Properties();
 
@@ -208,7 +208,7 @@ public class KVServer extends Thread implements IKVServer {
 				}
 			}
 
-			OutputStream output = new FileOutputStream(storage_file_path);
+			OutputStream output = new FileOutputStream(fileName);
 			// store key-values back in file
 			prop.store(output, null);
 			output.close();
@@ -340,11 +340,17 @@ public class KVServer extends Thread implements IKVServer {
 
 	private void initializeStorage() {
 		try {
+			File dir = new File(dataDir);
+			if(!dir.exists()) {
+				dir.mkdirs();
+				logger.info("Data directory " + dataDir + " created.\n");
+			}
+			this.fileName = dataDir + "/" + port + ".properties";
 			// see if file exists, if not, create it
-			File f = new File(storage_file_path);
+			File f = new File(fileName);
 
 			if (f.createNewFile()) {
-				logger.info("Created storage file at " + storage_file_path + '\n');
+				logger.info("Created storage file at " + fileName + '\n');
 			}
 		} catch (IOException e) {
 			System.out.println("Error! Unable initialize Storage.");
@@ -352,65 +358,107 @@ public class KVServer extends Thread implements IKVServer {
 		}
 	}
 
-	public static void main(String[] args) {
-		String ecs_ip_port;
-		String address_str;
-		int port_int;
+	public static void main(String[] args) throws Exception{
+		// String ecs_ip_port;
+		// String address_str;
+		// int port_int;
 
-		if ((args[0].equals("-b")) && (args[2].equals("-a")) && (args[4].equals("-p"))) {
+		// if ((args[0].equals("-a")) && (args[2].equals("-p")) && (args[4].equals("-LL")) && (args[6].equals("-d")) && 
+		// (args[8].equals("-s")) && (args[10].equals("-c")) && (args[12].equals("-b"))) {
 
-			ecs_ip_port = args[1];
-			address_str = args[3];
-			port_int = Integer.parseInt(args[5]);
-
-			try {
-				new LogSetup("logs/server" + port_int + ".log", Level.ALL);
-			} catch (IOException e) {
-			System.out.println("Error! Unable to initialize logger!");
-			e.printStackTrace();
-			System.exit(1);
-			}
-
-			new KVServer(ecs_ip_port, address_str, port_int, 1, "None").start();
-		} else {
-			System.out.println("Error! Incorrect arguments. Expected -b <ecs_ip>:<ecs_address> -a <address> -p <port>");
-		}
-		// Options options = new Options();
-
-		// Option ecs_address = new Option("b", "ecs<ip>:<port>", true, "ECS IP address and port");
-        // ecs_address.setRequired(true);
-        // options.addOption(ecs_address);
-
-        // Option address = new Option("a", "address", true, "IP adress");
-        // address.setRequired(true);
-        // options.addOption(address);
-
-        // Option port = new Option("p", "port", true, "Port");
-        // port.setRequired(true);
-        // options.addOption(port);
-
-        // CommandLineParser parser = new DefaultParser();
-        // CommandLine cmd = null;
-        // HelpFormatter formatter = new HelpFormatter();
-
-        // try {
-
-		// 	new LogSetup("logs/server" + port + ".log", Level.ALL);
-            
-        //     cmd = parser.parse(options, args);
-
-		// } catch (IOException e) {
+		// 	address_str = args[3];
+		// 	port_int = Integer.parseInt(args[5]);
+		// 	ecs_ip_port = args[13];
+		// 	try {
+		// 		new LogSetup("logs/server" + port_int + ".log", Level.ALL);
+		// 	} catch (IOException e) {
 		// 	System.out.println("Error! Unable to initialize logger!");
 		// 	e.printStackTrace();
 		// 	System.exit(1);
+		// 	}
+
+		// 	new KVServer(ecs_ip_port, address_str, port_int, 1, "None").start();
+		// } else {
+		// 	System.out.println("Error! Incorrect arguments. Expected -b <ecs_ip>:<ecs_address> -a <address> -p <port>");
+		// }
+		Options options = new Options();
+
+		Option ecs_address = new Option("b", "bootstrap", true, "ECS IP address and port <ip>:<port>");
+        ecs_address.setRequired(true);
+        options.addOption(ecs_address);
+
+        Option address = new Option("a", "address", true, "IP adress");
+        address.setRequired(true);
+        options.addOption(address);
+
+        Option port_in = new Option("p", "port", true, "Port");
+        port_in.setRequired(true);
+        options.addOption(port_in);
+
+		Option logLevel = new Option("LL", "logLevel", true, "Log Level. Default is INFO");
+        logLevel.setRequired(false);
+        options.addOption(logLevel);
+
+		Option dataDir = new Option("d", "dataDir", true, "Directory where data will be stored. Default = data");
+        dataDir.setRequired(false);
+        options.addOption(dataDir);
+
+		Option strategy = new Option("s", "strategy", true, "Cache Strategy. (Default = None)");
+        strategy.setRequired(false);
+        options.addOption(strategy);
+
+		Option cacheSize = new Option("c", "cacheSize", true, "Size of cache in kv-pairs. Default is 1.");
+        cacheSize.setRequired(false);
+        options.addOption(cacheSize);
+
+        CommandLineParser parser = new BasicParser();
+        CommandLine cmd = null;
+        HelpFormatter formatter = new HelpFormatter();
+
+        try {
+
+			//default values
+			Level log_level = Level.INFO;
+			String data_dir = "data";
+			CacheStrategy strat = CacheStrategy.None;
+			int cache_size = 1;
+
+			cmd = parser.parse(options, args);
+			
+			if (cmd.hasOption("LL")) {
+				log_level = Level.toLevel(cmd.getOptionValue("logLevel"));
+			}			
+			new LogSetup("logs/server" + port_in + ".log", log_level);
+            
+			String ecs_ip_port = cmd.getOptionValue("bootstrap");
+			String address_str = cmd.getOptionValue("address");
+			int port_int = Integer.parseInt(cmd.getOptionValue("port"));
+
+			if (cmd.hasOption("d")) {
+				data_dir = cmd.getOptionValue("dataDir");
+			}
+			if (cmd.hasOption("s")) {
+				strat = CacheStrategy.valueOf(cmd.getOptionValue("strategy"));
+			}
+			if (cmd.hasOption("c")) {
+				cache_size = Integer.parseInt(cmd.getOptionValue("cacheSize"));
+			}
+
+			new KVServer(ecs_ip_port, address_str, port_int, cache_size, strat, data_dir).start();
+
+		} catch (Exception e) {
+			System.out.println(e.getMessage());
+			e.printStackTrace();
+			formatter.printHelp("utility-name", options);
+			System.exit(1);
+		}
 		// } catch (ParseException e) {
 		// 	System.out.println(e.getMessage());
 		// 	formatter.printHelp("utility-name", options);
 		// 	System.exit(1);
+		// 	return;
 		// }
 
-		// String ecs_ip_port = cmd.getOptionValue("ecs<ip>:<port>");
-        // String address_str = cmd.getOptionValue("address");
-        // int port_int = Integer.parseInt(cmd.getOptionValue("port"));
+		
     }
 }

@@ -165,56 +165,60 @@ public class ECSClient extends Thread implements IECSClient {
 		}
 	}
 
-    public static void main(String[] args) {
-		String address_str;
-		int port_int;
+    public static void main(String[] args) throws Exception {
+		// String address_str;
+		// int port_int;
         
-        System.out.println(args[2].equals("-p"));
-		if ((args.length == 4) && (args[0].equals("-a")) && (args[2].equals("-p"))) {
-			try {
-                new LogSetup("logs/ecs.log", Level.ALL);
-            } catch (IOException e) {
-                System.out.println("Error! Unable to initialize logger!");
-                e.printStackTrace();
-                System.exit(1);
-            }
-            address_str = args[1];
-			port_int = Integer.parseInt(args[3]);
+        // System.out.println(args[2].equals("-p"));
+		// if ((args.length == 6) && (args[0].equals("-a")) && (args[2].equals("-p")) && (args[4].equals("-ll"))) {
+		// 	try {
+        //         new LogSetup("logs/ecs.log", Level.ALL);
+        //     } catch (IOException e) {
+        //         System.out.println("Error! Unable to initialize logger!");
+        //         e.printStackTrace();
+        //         System.exit(1);
+        //     }
+        //     address_str = args[1];
+		// 	port_int = Integer.parseInt(args[3]);
 
-			new ECSClient(address_str, port_int).start();
-		} else {
-			System.out.println("Error! Incorrect arguments. Expected -b <ecs_ip>:<ecs_address> -a <address> -p <port>");
-		}
-        // Options options = new Options();
+		// 	new ECSClient(address_str, port_int).start();
+		// } else {
+		// 	System.out.println("Error! Incorrect arguments. Expected -b <ecs_ip>:<ecs_address> -a <address> -p <port> -ll <logLevel>");
+		// }
+        Options options = new Options();
 
-        // Option address = new Option("a", "address", true, "ECS IP adress");
-        // address.setRequired(true);
-        // options.addOption(address);
+        Option address = new Option("a", "address", true, "ECS IP adress");
+        address.setRequired(true);
+        options.addOption(address);
 
-        // Option port = new Option("p", "port", true, "ECS Port");
-        // port.setRequired(true);
-        // options.addOption(port);
+        Option port = new Option("p", "port", true, "ECS Port");
+        port.setRequired(true);
+        options.addOption(port);
 
-        // CommandLineParser parser = new DefaultParser();
-        // HelpFormatter formatter = new HelpFormatter();
-        // CommandLine cmd = null;
-        // try {
-		// 	new LogSetup("logs/ecs.log", Level.ALL);
-        //     cmd = parser.parse(options, args);
-		// } catch (ParseException e) {
-        //     System.out.println(e.getMessage());
-		// 	formatter.printHelp("utility-name", options);
-		// 	System.exit(1);
-        // }
-        // catch (IOException e) {
-		// 	System.out.println("Error! Unable to initialize logger!");
-		// 	e.printStackTrace();
-		// 	System.exit(1);
-		// } 
+        Option logLevel = new Option("ll", "logLevel", true, "Log Level. Default is INFO");
+        logLevel.setRequired(false);
+        options.addOption(logLevel);
 
-        // String address_str = cmd.getOptionValue("address");
-        // int port_int = Integer.parseInt(cmd.getOptionValue("port"));
+        CommandLineParser parser = new DefaultParser();
+        HelpFormatter formatter = new HelpFormatter();
+        CommandLine cmd = null;
 
-        // new ECSClient(address_str, port_int).start();
+        try {
+            //default values
+			Level log_level = Level.INFO;
+            cmd = parser.parse(options, args);
+            if (cmd.hasOption("ll")) {
+				log_level = Level.toLevel(cmd.getOptionValue("logLevel"));
+			}            
+			new LogSetup("logs/ecs.log", log_level);
+            String address_str = cmd.getOptionValue("address");
+            int port_int = Integer.parseInt(cmd.getOptionValue("port"));
+            new ECSClient(address_str, port_int).start();            
+		} catch (Exception e) {
+            System.out.println(e.getMessage());
+            e.printStackTrace();
+			formatter.printHelp("utility-name", options);
+			System.exit(1);
+        }
     }
 }
