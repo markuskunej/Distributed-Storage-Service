@@ -395,7 +395,7 @@ public class KVServer extends Thread implements IKVServer {
         port_in.setRequired(true);
         options.addOption(port_in);
 
-		Option logLevel = new Option("LL", "logLevel", true, "Log Level. Default is INFO");
+		Option logLevel = new Option("ll", "logLevel", true, "Log Level. Default is INFO");
         logLevel.setRequired(false);
         options.addOption(logLevel);
 
@@ -425,7 +425,7 @@ public class KVServer extends Thread implements IKVServer {
 
 			cmd = parser.parse(options, args);
 			
-			if (cmd.hasOption("LL")) {
+			if (cmd.hasOption("ll")) {
 				log_level = Level.toLevel(cmd.getOptionValue("logLevel"));
 			}			
 			new LogSetup("logs/server" + port_in + ".log", log_level);
