@@ -4,6 +4,7 @@ import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.util.TreeMap;
 
 import org.apache.log4j.*;
 
@@ -12,9 +13,9 @@ import app_kvServer.KVServer;
 
 import org.apache.commons.lang3.SerializationUtils;
 
-import shared.messages.IKVMessage;
-import shared.messages.KVMessage;
-import shared.messages.IKVMessage.StatusType;
+import shared.messages.IECSMessage;
+import shared.messages.ECSMessage;
+import shared.messages.IECSMessage.StatusType;
 
 /**
  * Represents a connection end point for a particular KVServer that is
@@ -56,16 +57,16 @@ public class KVServerConnection implements Runnable {
 			output = kvServerSocket.getOutputStream();
 			input = kvServerSocket.getInputStream();
 
-			sendMessage(new KVMessage(
+			sendMessage(new ECSMessage(
 					"Connection to KVServer established: "
 							+ kvServerSocket.getLocalAddress() + " / "
-							+ kvServerSocket.getLocalPort(),
-					null, StatusType.STRING));
+							+ kvServerSocket.getLocalPort(), StatusType.STRING));
 
+		
 			while (isOpen) {
 				try {
-					KVMessage latestMsg = receiveMessage();
-					KVMessage responseMsg = handleMessage(latestMsg);
+					ECSMessage latestMsg = receiveMessage();
+					ECSMessage responseMsg = handleMessage(latestMsg);
 					sendMessage(responseMsg);
 
 					/*
@@ -104,7 +105,7 @@ public class KVServerConnection implements Runnable {
 	 * @param msg the message that is to be sent.
 	 * @throws IOException some I/O error regarding the output stream
 	 */
-	public void sendMessage(KVMessage msg) throws IOException {
+	public void sendMessage(ECSMessage msg) throws IOException {
 		//byte[] msgBytes = SerializationUtils.serialize(msg);
 		byte[] msgBytes = msg.getMsgBytes();
 		output.write(msgBytes, 0, msgBytes.length);
@@ -115,7 +116,7 @@ public class KVServerConnection implements Runnable {
 				+ msg.getMsg() + "'");
 	}
 
-	private KVMessage receiveMessage() throws IOException {
+	private ECSMessage receiveMessage() throws IOException {
 
 		int index = 0;
 		byte[] msgBytes = null, tmp = null;
@@ -171,7 +172,7 @@ public class KVServerConnection implements Runnable {
 		msgBytes = tmp;
 
 		//KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
-		KVMessage receivedMsg = new KVMessage(msgBytes);
+		ECSMessage receivedMsg = new ECSMessage(msgBytes);
 
 		/* build final String */
 		logger.info("RECEIVE \t<"
@@ -181,34 +182,38 @@ public class KVServerConnection implements Runnable {
 		return receivedMsg;
 	}
 
-	private KVMessage handleMessage(KVMessage msg) throws Exception {
-	// 	String returnValue = msg.getValue();
-	// 	StatusType returnStatus = msg.getStatus();
-	// 	if (msg.getStatus() == StatusType.PUT) {
-	// 		try {
-	// 			returnStatus = kvServer.putKV(msg.getKey(), msg.getValue());
-	// 		} catch (Exception e) {
-	// 			logger.error("Error trying putKV");
-	// 			returnStatus = StatusType.PUT_ERROR;
-	// 		}
-	// 	} else if (msg.getStatus() == StatusType.GET) {
-	// 		try {
-	// 			returnValue = kvServer.getKV(msg.getKey());
-	// 			if (returnValue != null) {
-	// 				returnStatus = StatusType.GET_SUCCESS;
-	// 			} else {
-	// 				returnStatus = StatusType.GET_ERROR;
-	// 			}
-				
-	// 		} catch (Exception e) {
-	// 			logger.error("Error trying getKV");
-	// 			returnStatus = StatusType.GET_ERROR;
-	// 		}
-	// 	}
+	private ECSMessage handleMessage(ECSMessage msg) throws Exception {
+		ECSMessage returnMsg = new ECSMessage("ERROR IN HANDLE_MESSAGE", StatusType.STRING);
+		if (msg.getStatus() == StatusType.NEW_SERVER) {
+			try {
+				String server_name = msg.getValue();
+				ecsServer.addToMetaData(server_name);
+				ECSMessage metadata_update = new ECSMessage(ecsServer.getMetaData(), StatusType.METADATA);
+				sendMessage(metadata_update);
 
-	// 	return new KVMessage(msg.getKey(), returnValue, returnStatus);
-	// }
-		return new KVMessage("Placeholder", "Placeholder", StatusType.STRING);
+				String successorName = ecsServer.getSuccesorServer(server_name);
+				if (successorName != null) {
+					ECSMessage rebalance_msg = new ECSMessage(successorName, StatusType.TRANSFER_FROM);
+					sendMessage(rebalance_msg);
+				}
+
+				returnMsg = new ECSMessage("", StatusType.NEW_SERVER_SUCCESS);
+				//TreeMap<String, String> metadata = ecsServer.getMetaData();
+				// if (metadata != null) {
+				// 	returnMsg = new ECSMessage(metadata, StatusType.METADATA_SUCCESS);
+				// } else {
+				// 	logger.error("getMetaData produced empty tree!");
+				// 	returnMsg = new ECSMessage("", StatusType.METADATA_ERROR);
+				// }
+			} catch (Exception e) {
+				logger.error("Error adding new server");
+				e.printStackTrace();
+				returnMsg = new ECSMessage("", StatusType.NEW_SERVER_ERROR);
+			}
+		}
+
+		return returnMsg;
+
 	}
 
 }

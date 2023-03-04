@@ -1,11 +1,11 @@
 package shared.messages;
 
 import java.io.Serializable;
+import java.util.TreeMap;
 
 public class ECSMessage implements Serializable, IECSMessage {
 	private static final long serialVersionUID = 5549512212003782618L;
 	private StatusType status;
-	private String key;
 	private String value;
 	private String msg;
 	private byte[] msgBytes;
@@ -13,10 +13,9 @@ public class ECSMessage implements Serializable, IECSMessage {
 	private static final char LINE_FEED = 0x0A;
 	private static final char RETURN = 0x0D;
 
-	public ECSMessage(String k, String v, StatusType st) {
-		this.key = k;
-		this.value = v;
+	public ECSMessage(String value, StatusType st) {
 		this.status = st;
+		this.value = value;
 		this.msg = buildMsg();
 		this.msgBytes = toByteArray(msg);
 	}
@@ -30,7 +29,7 @@ public class ECSMessage implements Serializable, IECSMessage {
 	public ECSMessage(byte[] bytes) {
 		this.msgBytes = addCtrChars(bytes);
 		this.msg = new String(msgBytes).trim();
-		setKV(msg);
+		setECS(msg);
 	}
 
 	/**
@@ -39,29 +38,26 @@ public class ECSMessage implements Serializable, IECSMessage {
 	 * 
 	 * @param msg the String that forms the message.
 	 */
-	public ECSMessage(String msg) {
-		this.msg = msg;
-		setKV(msg);
+	public ECSMessage(TreeMap<String, String> metadata, StatusType status) {
+		this.status = status;
+		this.value = treeToString(metadata);
+		this.msg = buildMsg();
 		this.msgBytes = toByteArray(msg);
 	}
 
-	@Override
-	public String getKey() {
-		return key.trim();
-	}
-
-	@Override
-	public String getValue() {
-		if (value != null) {
-			return value.trim();
-		} else {
-			return null;
-		}
+	public ECSMessage(String msg) {
+		this.msg = msg;
+		setECS(msg);
+		this.msgBytes = toByteArray(msg);
 	}
 
 	@Override
 	public StatusType getStatus() {
 		return status;
+	}
+
+	public String getValue() {
+		return value.trim();
 	}
 
 	/**
@@ -83,17 +79,32 @@ public class ECSMessage implements Serializable, IECSMessage {
 		return msgBytes;
 	}
 
-	private void setKV(String msg) {
-		String[] splitted = msg.split("~");
-		if (splitted.length == 2) {
-			this.key = splitted[0].trim();
-			this.value = "";
-			this.status = StatusType.valueOf(splitted[1].trim());
-		} else if (splitted.length == 3) {
-			this.key = splitted[0].trim();
-			this.value = splitted[1].trim();
-			this.status = StatusType.valueOf(splitted[2].trim());
+	public TreeMap<String, String> getValueAsMetadata() {
+		TreeMap<String, String> metadata = new TreeMap<String, String>();
+		String[] entries_arr = value.split(",");
+		for (String entry_str: entries_arr) {
+			String[] entry_split = entry_str.split("=");
+			metadata.put(entry_split[0], entry_split[1]);
 		}
+		
+		return metadata;
+	}
+
+	private void setECS(String msg) {
+		String[] splitted = msg.split("~");
+		this.value = splitted[0].trim();
+		this.status = StatusType.valueOf(splitted[1].trim());
+	}
+
+	private String treeToString(TreeMap<String, String> tree) {
+		StringBuilder treeAsString = new StringBuilder();
+		for (String hash : tree.keySet()) {
+			treeAsString.append(hash + "=" + tree.get(hash) + ",");
+		}
+		// delete , at end
+		treeAsString.deleteCharAt(treeAsString.length() -1);
+
+		return treeAsString.toString();
 	}
 
 	private byte[] addCtrChars(byte[] bytes) {
@@ -118,10 +129,6 @@ public class ECSMessage implements Serializable, IECSMessage {
 	}
 
 	private String buildMsg() {
-		if ((value != null) && (value != "")) {
-			return key.trim() + "~" + value.trim() + "~" + status.name();
-		} else {
-			return key.trim() + "~" + status.name();
-		}
+		return value.trim() + "~" + status.name();
 	}
 }

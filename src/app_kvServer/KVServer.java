@@ -12,6 +12,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Properties;
+import java.util.TreeMap;
+
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.cli.*;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLineParser;
@@ -19,15 +22,20 @@ import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
 import logger.LogSetup;
-
+import server.ECSMessageHandler;
 import server.KVClientConnection;
+import shared.messages.ECSMessage;
 import shared.messages.IKVMessage;
 import shared.messages.KVMessage;
 import shared.messages.IKVMessage.StatusType;
+import shared.messages.IECSMessage;
 
 public class KVServer extends Thread implements IKVServer {
 
 	private static Logger logger = Logger.getRootLogger();
+
+	private static final int BUFFER_SIZE = 1024;
+	private static final int DROP_SIZE = 128 * BUFFER_SIZE;
 
 	private String ecs_addr;
 	private int ecs_port;
@@ -44,6 +52,9 @@ public class KVServer extends Thread implements IKVServer {
 	private OutputStream ecs_output;
 	private InputStream ecs_input;
 	private String dataDir;
+	private TreeMap<String, String> metadata;
+	private String hash;
+
 
 	/**
 	 * Start KV Server at given port
@@ -63,9 +74,13 @@ public class KVServer extends Thread implements IKVServer {
 		this.ecs_port = Integer.parseInt(ecs[1]);
 		this.address = address;
 		this.port = port;
+		this.hash = hash(address + ":" + port);
 		this.cacheSize = cacheSize;
 		this.strategy = strategy;
 		this.dataDir = dataDir;
+		this.stopped = true; // start in stopped state
+		this.metadata = new TreeMap<String, String>();
+		
 		try {
 			connectToECS();
 		} catch (Exception e) {
@@ -95,6 +110,14 @@ public class KVServer extends Thread implements IKVServer {
 		return null;
 	}
 
+	public String getNameServer() {
+		return address + ":" + port;
+	}
+
+	public String getHash() {
+		return hash;
+	}
+
 	@Override
 	public CacheStrategy getCacheStrategy() {
 		return this.strategy;
@@ -103,6 +126,18 @@ public class KVServer extends Thread implements IKVServer {
 	@Override
 	public int getCacheSize() {
 		return this.cacheSize;
+	}
+
+	public TreeMap<String, String> getMetaData() {
+        return metadata;
+    }
+
+	public void setMetaData(TreeMap<String, String> metadata) {
+		this.metadata = metadata;
+	}
+
+	public void setStopped(boolean stopped) {
+		this.stopped = stopped;
 	}
 
 	@Override
@@ -127,6 +162,10 @@ public class KVServer extends Thread implements IKVServer {
 		return false;
 	}
 
+	private String hash(String input_str) {
+        return DigestUtils.md5Hex(input_str);
+    }
+
 	@Override
 	public boolean inCache(String key) {
 		if (this.strategy == CacheStrategy.None) {
@@ -146,6 +185,8 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public String getKV(String key) throws Exception {
+		
+
 		try (InputStream input = new FileInputStream(fileName)) {
 
 			Properties prop = new Properties();
@@ -247,8 +288,35 @@ public class KVServer extends Thread implements IKVServer {
 		running = initializeServer();
 
 		try {
-			ecs_output = ecsSocket.getOutputStream();
-			ecs_input = ecsSocket.getInputStream();
+			// ecs_output = ecsSocket.getOutputStream();
+			// ecs_input = ecsSocket.getInputStream();
+
+			// try {
+			// 	// request metadata from ecs server
+			// 	sendMessageToECS(new ECSMessage("placeholder", IECSMessage.StatusType.METADATA));
+			// } catch (IOException ioe) {
+			// 	logger.error("Error! Connection to ECS lost while trying to get initial metadata!");
+			// }
+
+			// new thread to handle incoming ECS messages
+
+			// new Thread(() -> {
+			// 	while(isRunning()) {
+			// 		try {
+			// 			// see if new message from ECS
+			// 			ECSMessage latestECSMsg = receiveMessageFromECS();
+			// 			handleECSMessage(latestECSMsg);
+			// 		} catch (IOException ioe) {
+			// 			logger.error("Error! Connection to ECS lost!");
+			// 		} catch (Exception e) {
+			// 			logger.error("Error! Connection to ECS lost!");
+			// 		}
+			// 	}
+			// }).start();
+
+			// start a new thread to handle ECS messages
+			ECSMessageHandler ecsHandler = new ECSMessageHandler(ecsSocket, this);
+			new Thread(ecsHandler).start();
 
 			if (serverSocket != null) {
 				while (isRunning()) {
@@ -264,10 +332,19 @@ public class KVServer extends Thread implements IKVServer {
 						logger.error("Error! " +
 								"Unable to establish connection. \n", e);
 					}
+					// try {
+					// 	// see if new message from ECS
+					// 	ECSMessage latestECSMsg = receiveMessageFromECS();
+					// 	handleECSMessage(latestECSMsg);
+					// } catch (IOException ioe) {
+					// 	logger.error("Error! Connection to ECS lost!");
+					// } catch (Exception e) {
+					// 	logger.error("Error! Connection to ECS lost!");
+					// }
 				}
 			}
 			logger.info("Server stopped.");
-		} catch (IOException ioe) {
+		} catch (Exception e) {
 			logger.error("Connection to ecs could not be established.");
 		} finally {
 			if (isRunning()) {
@@ -308,7 +385,7 @@ public class KVServer extends Thread implements IKVServer {
 		}
 	}
 
-	private boolean connectToServer(String server_address, int server_port) throws Exception {
+	public boolean connectToServer(String server_address, int server_port) throws Exception {
 		logger.info("Connecting to KVserver on port " + server_port + "\n");
 		kvServerSocket = new Socket(server_address, server_port);
 		
@@ -357,6 +434,8 @@ public class KVServer extends Thread implements IKVServer {
 			e.printStackTrace();
 		}
 	}
+
+	
 
 	public static void main(String[] args) throws Exception{
 		// String ecs_ip_port;
@@ -428,11 +507,12 @@ public class KVServer extends Thread implements IKVServer {
 			if (cmd.hasOption("ll")) {
 				log_level = Level.toLevel(cmd.getOptionValue("logLevel"));
 			}			
-			new LogSetup("logs/server" + port_in + ".log", log_level);
             
 			String ecs_ip_port = cmd.getOptionValue("bootstrap");
 			String address_str = cmd.getOptionValue("address");
 			int port_int = Integer.parseInt(cmd.getOptionValue("port"));
+
+			new LogSetup("logs/server" + port_int + ".log", log_level);
 
 			if (cmd.hasOption("d")) {
 				data_dir = cmd.getOptionValue("dataDir");

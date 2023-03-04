@@ -34,9 +34,11 @@ public class ECSClient extends Thread implements IECSClient {
     private TreeMap<String, String> metadata;
 
 
+
     public ECSClient(String addr, int port) {
 		this.port = port;
         this.addr = addr;
+        metadata = new TreeMap<String, String>();
 	}
 
 
@@ -56,6 +58,10 @@ public class ECSClient extends Thread implements IECSClient {
     public Collection<IECSNode> addNodes(int count, String cacheStrategy, int cacheSize) {
         // TODO
         return null;
+    }
+
+    public void addServer(String server_name) {
+        addToMetaData(server_name);
     }
 
     @Override
@@ -89,22 +95,36 @@ public class ECSClient extends Thread implements IECSClient {
     }
 
     private String hash(String input_str) {
-        // MessageDigest md = MessageDigest.getInstance("MD5");
-        // byte[] MD5digest = md.digest(input_str.getBytes());
-
-        // return new BigInteger(1, MD5digest);
         return DigestUtils.md5Hex(input_str);
     }
 
-    private void addToMetaData(String server_ip_port) {
+    public void addToMetaData(String server_ip_port) {
         String hash_value = hash(server_ip_port);
-
-        metadata.put(hash_value, server_ip_port);
+        logger.info("hash is " + hash_value);
+        this.metadata.put(hash_value, server_ip_port);
         logger.info("Added " + server_ip_port + " to metadata.");
     }
 
     private void updateMetaData() {
         
+    }
+
+    public TreeMap<String, String> getMetaData() {
+        return metadata;
+    }
+
+    public String getSuccesorServer(String newServer) {
+        if (metadata.size() == 1) {
+            // only server connected to ECS, no successor
+            return null;
+        }
+        String serverBefore = metadata.lowerKey(hash(newServer));
+        if (serverBefore == null) {
+            //this new server has the lowest value in hash ring, successor is the server with largest hash key
+            return metadata.get(metadata.lastKey());
+        } else {
+            return serverBefore;
+        }
     }
 
     private void removeFromMetaData(String server_ip_port) {
@@ -132,11 +152,18 @@ public class ECSClient extends Thread implements IECSClient {
 				try {
 					Socket kvServer = ECSServerSocket.accept();
 					KVServerConnection connection = new KVServerConnection(kvServer, this);
-					new Thread(connection).start();
+					//String serverName = kvServer.getInetAddress().getHostAddress() + ":" + kvServer.getLocalPort();
+                    //logger.info("Servername is " + serverName);
+                    //addToMetaData(serverName);
+                    
+                    new Thread(connection).start();
 
 					logger.info("Connected to "
 							+ kvServer.getInetAddress().getHostName()
-							+ " on port " + kvServer.getPort() + "\n");
+							+ " on port " + kvServer.getLocalPort() + "\n");
+
+                    
+
 				} catch (IOException e) {
 					logger.error("Error! " +
 							"Unable to establish connection. \n", e);
