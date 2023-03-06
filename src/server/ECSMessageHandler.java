@@ -9,6 +9,7 @@ import org.apache.log4j.*;
 
 import app_kvServer.KVServer;
 import shared.messages.ECSMessage;
+import shared.messages.KVMessage;
 import shared.messages.IECSMessage.StatusType;
 
 public class ECSMessageHandler implements Runnable {
@@ -24,6 +25,7 @@ public class ECSMessageHandler implements Runnable {
 	private OutputStream output;
 	private KVServer kvServer;
 
+	private Thread shutdownHook;
 
     /**
 	 * Constructs a new KVServerConnection object for a given TCP socket.
@@ -33,27 +35,58 @@ public class ECSMessageHandler implements Runnable {
 	public ECSMessageHandler(Socket ecsSocket, KVServer kvServer) {
 		this.ecsSocket = ecsSocket;
 		this.isOpen = true;
-		this.kvServer = kvServer; 
+		this.kvServer = kvServer;
+		shutdownHook = new Thread(new Runnable() {
+			@Override
+			public void run() {
+				shutdown();
+			}
+		});
+		Runtime.getRuntime().addShutdownHook(shutdownHook);
 	}
 
     public void run() {
         try {
             output = ecsSocket.getOutputStream();
             input = ecsSocket.getInputStream();
+			// run shutdown hook after opening input and output
+			// shutdownHook = new Thread(new Runnable() {
+			// 	@Override
+			// 	public void run() {
+			// 		shutdown();
+			// 	}
+			// });
+			// Runtime.getRuntime().addShutdownHook(shutdownHook);
             //ask for initial metadata
             sendMessageToECS(new ECSMessage(kvServer.getNameServer(), StatusType.NEW_SERVER));
 
             while (isOpen) {
-                ECSMessage latestECSMsg = receiveMessageFromECS();
-                handleECSMessage(latestECSMsg);
-            }
-        } catch (IOException ioe) {
-            logger.error("Error! Connection to ECS lost!");
-            isOpen = false;
-        } catch (Exception e) {
-            logger.error("Error! Connection to ECS lost!");
-            isOpen = false;
-        }
+				try {
+					ECSMessage latestECSMsg = receiveMessageFromECS();
+					handleECSMessage(latestECSMsg);
+				
+				} catch (IOException ioe) {
+					logger.error("Error! Connection to ECS lost!");
+					isOpen = false;
+				} catch (Exception e) {
+					logger.error("Error! Connection to ECS lost!");
+					isOpen = false;
+				}
+			}
+
+		} catch (IOException ioe) {
+			logger.error("Error! Connection to ECS could not be established!", ioe);
+		} finally {
+			try {
+				if (ecsSocket != null) {
+					input.close();
+					output.close();
+					ecsSocket.close();
+				}
+			} catch (IOException ioe) {
+				logger.error("Error! Unable to tear down connection with ECS!", ioe);
+			}
+		}
     }
 
     public void sendMessageToECS(ECSMessage msg) throws IOException {
@@ -144,8 +177,83 @@ public class ECSMessageHandler implements Runnable {
 			} catch (Exception e) {
 				logger.error("Error to read metadata from ECSMessage");
 			}
-		} else if (msg.getStatus() == StatusType.TRANSFER_FROM) {
-			logger.info("TRANSFER_FROM");
+		} else if (msg.getStatus() == StatusType.TRANSFER_TO_REQUEST) {
+			kvServer.setWriteLock(true);
+			String successorServer = msg.getValue();
+			String kv_pairs = kvServer.getKvsToTransfer(successorServer);
+			logger.info("KV_PAIRS IS " + kv_pairs);
+			if (kv_pairs == null || kv_pairs.length() == 0) {
+				logger.info("No KV pairs to transfer");
+				sendMessageToECS(new ECSMessage("No KV Pairs needed to be transferred!", StatusType.TRANSFER_TO_REQUEST_SUCCESS));
+			} else {
+				logger.info("At least 1 KV pair needs to be transferred, connect to successor server");
+				kvServer.startSuccessorHandler(successorServer, kv_pairs);
+				kvServer.sendServerMessage(new KVMessage(kv_pairs, null, shared.messages.IKVMessage.StatusType.TRANSFER_TO));
+			}
+		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO_REQUEST) {
+			String successorServer = msg.getValue();
+			String kv_pairs = kvServer.getAllKvs();
+			if (kv_pairs == null || kv_pairs.length() == 0) {
+				logger.info("No KV pairs to transfer");
+				sendMessageToECS(new ECSMessage("No KV Pairs needed to be transferred!", StatusType.TRANSFER_ALL_TO_REQUEST_SUCCESS));
+			} else {
+				logger.info("At least 1 KV pair needs to be transferred, connect to successor server");
+				kvServer.startSuccessorHandler(successorServer, kv_pairs);
+				kvServer.sendServerMessage(new KVMessage(kv_pairs, null, shared.messages.IKVMessage.StatusType.TRANSFER_ALL_TO));
+			}
+
+		} else if (msg.getStatus() == StatusType.SHUTDOWN_SERVER_SUCCESS) {
+			// now it's safe to delete all data + files
+			logger.info("before delete data");
+			kvServer.deleteDataFile();
+			logger.info("after delete data");
+			isOpen = false;
+		} else if (msg.getStatus() == StatusType.SHUTDOWN_SERVER_ERROR) {
+			logger.error("SHUTDOWN_SERVER_ERROR");
+		}
+		// else if (msg.getStatus() == StatusType.TRANSFER_FROM) {
+		// 	kvServer.setWriteLock(true);
+		// 	String successorServer = msg.getValue();
+		// 	kvServer.transferFromServer(successorServer);
+		// 	logger.info("TRANSFER_FROM");
+		// }
+	}
+
+	private void shutdown() {
+		// set write lock of kvserver
+		kvServer.setWriteLock(true);
+		try {
+			// alert ECS of shutdown
+			sendMessageToECS(new ECSMessage(kvServer.getNameServer(), StatusType.SHUTDOWN_SERVER));
+		} catch (IOException ioe) {
+			logger.error("Unable to send shutdown message");
+		}
+		// wait for final 
+		while (isOpen) {
+			try {
+				logger.info("before receive");
+				ECSMessage latestECSMsg = receiveMessageFromECS();
+				handleECSMessage(latestECSMsg);
+			
+			} catch (IOException ioe) {
+				ioe.printStackTrace();
+				logger.error("Error! Connection to ECS lost before shutdown complete!");
+				isOpen = false;
+			} catch (Exception e) {
+				e.printStackTrace();
+				logger.error("Error! Connection to ECS lost before shutdown complete!");
+				isOpen = false;
+			}
+		}
+
+		try {
+			if (ecsSocket != null) {
+				input.close();
+				output.close();
+				ecsSocket.close();
+			}
+		} catch (IOException ioe) {
+			logger.error("Error! Unable to tear down connection with ECS!", ioe);
 		}
 	}
 }

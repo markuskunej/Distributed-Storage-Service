@@ -11,7 +11,9 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Enumeration;
 import java.util.Properties;
+import java.util.Set;
 import java.util.TreeMap;
 
 import org.apache.commons.codec.digest.DigestUtils;
@@ -24,6 +26,7 @@ import org.apache.log4j.Logger;
 import logger.LogSetup;
 import server.ECSMessageHandler;
 import server.KVClientConnection;
+import server.ServerMessageHandler;
 import shared.messages.ECSMessage;
 import shared.messages.IKVMessage;
 import shared.messages.KVMessage;
@@ -42,18 +45,21 @@ public class KVServer extends Thread implements IKVServer {
 	private String address;
 	private int port;
 	private ServerSocket serverSocket;
-	private Socket kvServerSocket;
+	private Socket successorServerSocket;
 	private Socket ecsSocket;
 	private boolean running;
 	private int cacheSize;
 	private CacheStrategy strategy;
 	private String fileName;
 	private boolean stopped;
+	private boolean write_lock;
 	private OutputStream ecs_output;
 	private InputStream ecs_input;
 	private String dataDir;
 	private TreeMap<String, String> metadata;
 	private String hash;
+	private ECSMessageHandler ecsHandler;
+	private ServerMessageHandler serverMsgHandler;
 
 
 	/**
@@ -79,16 +85,10 @@ public class KVServer extends Thread implements IKVServer {
 		this.strategy = strategy;
 		this.dataDir = dataDir;
 		this.stopped = true; // start in stopped state
+		this.write_lock = false;
 		this.metadata = new TreeMap<String, String>();
 		
-		try {
-			connectToECS();
-		} catch (Exception e) {
-			System.out.println("Error! Could not establish connection with ECS Server.");
-			e.printStackTrace();
-			System.exit(1);
-		}
-		initializeStorage();
+		
 	}
 
 	@Override
@@ -138,6 +138,10 @@ public class KVServer extends Thread implements IKVServer {
 
 	public void setStopped(boolean stopped) {
 		this.stopped = stopped;
+	}
+
+	public void setWriteLock(boolean lock) {
+		this.write_lock = lock;
 	}
 
 	@Override
@@ -263,6 +267,110 @@ public class KVServer extends Thread implements IKVServer {
 		}
 	}
 
+	public void startSuccessorHandler(String successorServer, String kv_pairs) {
+		//connect to other kvserver
+		String[] server_split = successorServer.split(":");
+		try {
+			connectToServer(server_split[0], Integer.parseInt(server_split[1]));
+		} catch (Exception e) {
+			logger.error("Error! Unable to connect to successor server.");
+		}		
+		// start the handler for the successor server
+		serverMsgHandler = new ServerMessageHandler(successorServerSocket, this, kv_pairs);
+		new Thread(serverMsgHandler).start();
+	}
+
+	public void sendServerMessage(KVMessage msg) {
+		if (serverMsgHandler != null) {
+			try {
+				serverMsgHandler.sendMessage(msg);
+			} catch (IOException ioe) {
+                logger.error("Error! Unable to send message to other KV server");
+            }
+		}
+	}
+
+	public String getKvsToTransfer(String successorServer) {
+		StringBuilder kv_pairs = new StringBuilder();
+		
+
+		String successorHash = hash(successorServer);
+		// transfer
+		try (InputStream input = new FileInputStream(fileName)) {
+
+			Properties prop = new Properties();
+
+			// load the kv storage
+			prop.load(input);
+
+			Enumeration enu = prop.keys();
+			
+			while (enu.hasMoreElements()) {
+				String key = (String) enu.nextElement();
+
+				if (hash(key).compareTo(successorHash) == 1) {
+					// since the key's hash is greater then the new server's hash
+					// it should now belong to the new server
+					String value = prop.getProperty(key);
+					kv_pairs.append(key + "=" + value + ",");
+				}
+			}
+
+			if (kv_pairs != null && kv_pairs.length() > 0) {
+				kv_pairs.deleteCharAt(kv_pairs.length() - 1);
+			}
+			
+			return kv_pairs.toString();
+
+		} catch (Exception e) {
+			logger.error("ERROR in getKvsToTransfer \n", e);
+			return null;
+		}
+	}
+
+	public String getAllKvs() {
+		StringBuilder kv_pairs = new StringBuilder();
+		
+		// transfer
+		try (InputStream input = new FileInputStream(fileName)) {
+
+			Properties prop = new Properties();
+
+			// load the kv storage
+			prop.load(input);
+
+			Enumeration enu = prop.keys();
+			
+			while (enu.hasMoreElements()) {
+				String key = (String) enu.nextElement();
+				String value = prop.getProperty(key);
+				kv_pairs.append(key + "=" + value + ",");
+			}
+
+			if (kv_pairs != null && kv_pairs.length() > 0) {
+				kv_pairs.deleteCharAt(kv_pairs.length() - 1);
+			}
+			
+			return kv_pairs.toString();
+
+		} catch (Exception e) {
+			logger.error("ERROR in getAllKvs. \n", e);
+			return null;
+		}
+	}
+
+	public void insertKvPairs(String kv_pairs) {
+		try {
+			String[] split_pairs = kv_pairs.split(",");
+
+			for (String kv_pair : split_pairs) {
+				String[] split_kv = kv_pair.split("=");
+				putKV(split_kv[0], split_kv[1]);
+			}
+		} catch (Exception e) {
+			logger.error("Error in KVServer.insertKvPairs");
+		}
+	}
 	@Override
 	public void clearCache() {
 		logger.info("Clear Cache. \n");
@@ -282,6 +390,11 @@ public class KVServer extends Thread implements IKVServer {
 		}
 	}
 
+	public void deleteDataFile(){
+		File f = new File(fileName);
+		f.delete();
+	}
+	
 	@Override
 	public void run() {
 
@@ -314,11 +427,19 @@ public class KVServer extends Thread implements IKVServer {
 			// 	}
 			// }).start();
 
-			// start a new thread to handle ECS messages
-			ECSMessageHandler ecsHandler = new ECSMessageHandler(ecsSocket, this);
-			new Thread(ecsHandler).start();
-
 			if (serverSocket != null) {
+				try {
+					connectToECS();
+				} catch (Exception e) {
+					System.out.println("Error! Could not establish connection with ECS Server.");
+					e.printStackTrace();
+					System.exit(1);
+				}
+				initializeStorage();
+				// start a new thread to handle ECS messages
+				ecsHandler = new ECSMessageHandler(ecsSocket, this);
+				new Thread(ecsHandler).start();
+
 				while (isRunning()) {
 					try {
 						Socket client = serverSocket.accept();
@@ -348,7 +469,8 @@ public class KVServer extends Thread implements IKVServer {
 			logger.error("Connection to ecs could not be established.");
 		} finally {
 			if (isRunning()) {
-				close();
+				//close();
+				kill();
 			}
 		}
 	}
@@ -359,7 +481,7 @@ public class KVServer extends Thread implements IKVServer {
 
 		try {
 			logger.info("Terminating Server. \n");
-			// client.stop();
+
 			serverSocket.close();
 		} catch (IOException e) {
 			logger.error("Error! Termination failure on port: " + port, e);
@@ -367,36 +489,52 @@ public class KVServer extends Thread implements IKVServer {
 	}
 
 	private boolean isRunning() {
-		return this.running;
+		return running;
 	}
 
 	private boolean isStopped() {
-		return this.stopped;
+		return stopped;
 	}
 
 	@Override
-	public void close() {
-		running = false;
+	public synchronized void close() {
+		this.running = false;
 		try {
 			serverSocket.close();
+			//ecsSocket.close();
 		} catch (IOException e) {
 			logger.error("Error! " +
 					"Unable to close socket on port: " + port + "\n", e);
 		}
 	}
 
-	public boolean connectToServer(String server_address, int server_port) throws Exception {
+	public void connectToServer(String server_address, int server_port) throws Exception {
 		logger.info("Connecting to KVserver on port " + server_port + "\n");
-		kvServerSocket = new Socket(server_address, server_port);
-		
-		return false;
+		this.successorServerSocket = new Socket(server_address, server_port);
 	}
 
 	private void connectToECS() throws Exception {
 		logger.info("Connecting to ECS on ip: " + this.ecs_addr + " port: " + this.ecs_port + "\n");
-		ecsSocket = new Socket(this.ecs_addr, this.ecs_port);
+		this.ecsSocket = new Socket(this.ecs_addr, this.ecs_port);
 		logger.info("Connection to ECS established");
 	}
+
+	public void sendEcsMessage(ECSMessage msg) {
+		if (ecsHandler != null) {
+			try {
+				ecsHandler.sendMessageToECS(msg);
+			} catch (IOException ioe) {
+                logger.error("Error! Unable to send message to ecs server");
+            }
+		}
+	}
+	// public void sendMessageToServer(KVMessage msg) throws IOException {
+	// 	//byte[] msgBytes = SerializationUtils.serialize(msg);
+	// 	byte[] msgBytes = msg.getMsgBytes();
+	// 	output.write(msgBytes, 0, msgBytes.length);
+	// 	output.flush();
+	// 	logger.info("Send message:\t '" + msg.getMsg() + "'");
+	// }
 
 	private boolean initializeServer() {
 		logger.info("Initialize KVServer ... \n");

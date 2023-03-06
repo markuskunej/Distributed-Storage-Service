@@ -3,6 +3,7 @@ package app_kvECS;
 import java.util.Map;
 import java.util.TreeMap;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.math.BigInteger;
 import java.net.BindException;
 import java.net.InetSocketAddress;
@@ -11,6 +12,7 @@ import java.net.Socket;
 import java.security.MessageDigest;
 import java.text.ParseException;
 import java.util.Collection;
+import java.util.HashMap;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -23,6 +25,8 @@ import org.apache.log4j.Level;
 import ecs.IECSNode;
 import ecs.KVServerConnection;
 import logger.LogSetup;
+import shared.messages.ECSMessage;
+import shared.messages.IECSMessage.StatusType;
 
 public class ECSClient extends Thread implements IECSClient {
 
@@ -32,6 +36,8 @@ public class ECSClient extends Thread implements IECSClient {
     private String addr;
     private int port;
     private TreeMap<String, String> metadata;
+    //private HashMap<String, Socket> socketMap = new HashMap<>();
+    private HashMap<String, KVServerConnection> connectionMap = new HashMap<>();
 
 
 
@@ -98,6 +104,20 @@ public class ECSClient extends Thread implements IECSClient {
         return DigestUtils.md5Hex(input_str);
     }
 
+    // public void addToConnections(String server_name, KVServerConnection conn) {
+    //     connectionMap.put(server_name, conn);
+    // }
+
+    public void updateConnectionMap(String oldKey, String newKey) {
+        KVServerConnection conn = connectionMap.remove(oldKey);
+        if (conn == null) {
+            logger.error("ERROR! Cannot update the connection map because the old key had no connection value");
+        } else {
+            connectionMap.put(newKey, conn);
+            logger.info("New Connection Map is: " + connectionMap.toString());
+        }
+    }
+
     public void addToMetaData(String server_ip_port) {
         String hash_value = hash(server_ip_port);
         logger.info("hash is " + hash_value);
@@ -105,8 +125,16 @@ public class ECSClient extends Thread implements IECSClient {
         logger.info("Added " + server_ip_port + " to metadata.");
     }
 
-    private void updateMetaData() {
-        
+    public void updateMetaDatas() {
+        ECSMessage metadata_msg = new ECSMessage(metadata, StatusType.METADATA);
+        for (Map.Entry<String, KVServerConnection> conn_entry : connectionMap.entrySet()) {
+            try {
+                conn_entry.getValue().sendMessage(metadata_msg);
+                //sendMessage(sock_entry.getValue(), metadata_msg);
+            } catch (IOException ioe) {
+                logger.error("Error! Unable to send metadata update to server: " + conn_entry.getKey());
+            }
+        }
     }
 
     public TreeMap<String, String> getMetaData() {
@@ -123,11 +151,11 @@ public class ECSClient extends Thread implements IECSClient {
             //this new server has the lowest value in hash ring, successor is the server with largest hash key
             return metadata.get(metadata.lastKey());
         } else {
-            return serverBefore;
+            return metadata.get(serverBefore);
         }
     }
 
-    private void removeFromMetaData(String server_ip_port) {
+    public void removeFromMetaData(String server_ip_port) {
         String hash_value = hash(server_ip_port);
         
         String prev_value = metadata.remove(hash_value);
@@ -151,14 +179,19 @@ public class ECSClient extends Thread implements IECSClient {
 			while (isRunning()) {
 				try {
 					Socket kvServer = ECSServerSocket.accept();
-					KVServerConnection connection = new KVServerConnection(kvServer, this);
+                    String serverName = kvServer.getInetAddress().getHostAddress() + ":" + kvServer.getPort();
+                    String tempName = Integer.toString(kvServer.getPort());
+                    //socketMap.put(serverName, kvServer);
+					KVServerConnection connection = new KVServerConnection(kvServer, this, tempName);
 					//String serverName = kvServer.getInetAddress().getHostAddress() + ":" + kvServer.getLocalPort();
-                    //logger.info("Servername is " + serverName);
+                    logger.info("temp name is " + tempName);
                     //addToMetaData(serverName);
-                    
-                    new Thread(connection).start();
+                    connectionMap.put(connection.getServerName(), connection);	
+                    logger.info("New Connection Map is: " + connectionMap.toString());				
 
-					logger.info("Connected to "
+                    new Thread(connection).start();
+                    //connectionMap.put(connection.getServerName(), connection);	
+                    logger.info("Connected to "
 							+ kvServer.getInetAddress().getHostName()
 							+ " on port " + kvServer.getLocalPort() + "\n");
 
@@ -172,6 +205,50 @@ public class ECSClient extends Thread implements IECSClient {
 		}
 		logger.info("ECS Server stopped.");
 	}
+
+    // send a message to the server that will be transferring data to another server
+    public void invokeTransferTo(String srcServer, String destServer) {
+        logger.info("srcServer is " + srcServer);
+        logger.info("connectioMap is " + connectionMap.toString());
+        KVServerConnection connection = connectionMap.get(srcServer);
+        //Socket successorSocket = socketMap.get(srcServer);
+        logger.info("invokeTransferTo before if " + connection);
+
+        if (connection != null) {
+            try {
+                logger.info("invokeTransferTo");
+                connection.sendMessage(new ECSMessage(destServer, StatusType.TRANSFER_TO_REQUEST));
+            } catch (IOException ioe) {
+                logger.error("Error! Unable to send TRANSFER_TO_REQUEST message to successor server");
+            }
+        }
+    }
+
+    // alert successor server of shutdown occurence
+    public void updateMetaData(String serverName) {
+        KVServerConnection connection = connectionMap.get(serverName);
+
+        if (connection != null) {
+            try {
+                // send updated metadata to single server
+                connection.sendMessage(new ECSMessage(metadata, StatusType.METADATA));
+            } catch (IOException ioe) {
+                logger.error("Error! Unable to send metadata update message to server: " + serverName);
+            }
+        }
+    }
+
+    private void sendMessage(Socket socket, ECSMessage msg) throws IOException {
+        OutputStream output = socket.getOutputStream();
+		byte[] msgBytes = msg.getMsgBytes();
+		output.write(msgBytes, 0, msgBytes.length);
+		output.flush();
+		logger.info("SEND \t<"
+				+ socket.getInetAddress().getHostAddress() + ":"
+				+ socket.getPort() + ">: '"
+				+ msg.getMsg() + "'");
+        output.close();        
+    }
 
     private boolean initializeECS() {
 		logger.info("Initialize ECS ... \n");

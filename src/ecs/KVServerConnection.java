@@ -32,6 +32,7 @@ public class KVServerConnection implements Runnable {
 	private static final int BUFFER_SIZE = 1024;
 	private static final int DROP_SIZE = 128 * BUFFER_SIZE;
 
+	private String serverName;
 	private Socket kvServerSocket;
 	private InputStream input;
 	private OutputStream output;
@@ -42,10 +43,16 @@ public class KVServerConnection implements Runnable {
 	 * 
 	 * @param kvServerSocket the Socket object for the kvServer connection.
 	 */
-	public KVServerConnection(Socket kvServerSocket, ECSClient ecsClient) {
+	public KVServerConnection(Socket kvServerSocket, ECSClient ecsClient, String tempName) {
 		this.kvServerSocket = kvServerSocket;
 		this.isOpen = true;
-		this.ecsServer = ecsClient; 
+		this.ecsServer = ecsClient;
+		this.serverName = tempName;
+		//shutdownHook = new Thread(this::shutdown);
+	}
+
+	public String getServerName() {
+		return serverName;
 	}
 
 	/**
@@ -58,7 +65,7 @@ public class KVServerConnection implements Runnable {
 			input = kvServerSocket.getInputStream();
 
 			sendMessage(new ECSMessage(
-					"Connection to KVServer established: "
+					"Connection to ECS established: "
 							+ kvServerSocket.getLocalAddress() + " / "
 							+ kvServerSocket.getLocalPort(), StatusType.STRING));
 
@@ -66,17 +73,20 @@ public class KVServerConnection implements Runnable {
 			while (isOpen) {
 				try {
 					ECSMessage latestMsg = receiveMessage();
-					ECSMessage responseMsg = handleMessage(latestMsg);
-					sendMessage(responseMsg);
+					handleMessage(latestMsg);
+					//ECSMessage responseMsg = handleMessage(latestMsg);
+					//sendMessage(responseMsg);
 
 					/*
 					 * connection either terminated by the ECS or lost due to
 					 * network problems
 					 */
 				} catch (IOException ioe) {
+					ioe.printStackTrace();
 					logger.error("Error! Connection lost!");
 					isOpen = false;
 				} catch (Exception e) {
+					e.printStackTrace();
 					logger.error("Error! Connection lost!");
 					isOpen = false;
 				}
@@ -100,12 +110,12 @@ public class KVServerConnection implements Runnable {
 	}
 
 	/**
-	 * Method sends a KVMessage using this socket.
+	 * Method sends a ECSMessage using this socket.
 	 * 
 	 * @param msg the message that is to be sent.
 	 * @throws IOException some I/O error regarding the output stream
 	 */
-	public void sendMessage(ECSMessage msg) throws IOException {
+	public synchronized void sendMessage(ECSMessage msg) throws IOException {
 		//byte[] msgBytes = SerializationUtils.serialize(msg);
 		byte[] msgBytes = msg.getMsgBytes();
 		output.write(msgBytes, 0, msgBytes.length);
@@ -182,22 +192,27 @@ public class KVServerConnection implements Runnable {
 		return receivedMsg;
 	}
 
-	private ECSMessage handleMessage(ECSMessage msg) throws Exception {
-		ECSMessage returnMsg = new ECSMessage("ERROR IN HANDLE_MESSAGE", StatusType.STRING);
+	private void handleMessage(ECSMessage msg) throws Exception {
+		//ECSMessage returnMsg = new ECSMessage("ERROR IN HANDLE_MESSAGE", StatusType.STRING);
 		if (msg.getStatus() == StatusType.NEW_SERVER) {
 			try {
 				String server_name = msg.getValue();
+				logger.info("old servername is " + serverName);
+				// update the connection map to point to the servers local hosting port
+				ecsServer.updateConnectionMap(serverName, server_name);
+				this.serverName = server_name;
 				ecsServer.addToMetaData(server_name);
 				ECSMessage metadata_update = new ECSMessage(ecsServer.getMetaData(), StatusType.METADATA);
 				sendMessage(metadata_update);
 
 				String successorName = ecsServer.getSuccesorServer(server_name);
+				logger.info("Successor is " + successorName);
 				if (successorName != null) {
-					ECSMessage rebalance_msg = new ECSMessage(successorName, StatusType.TRANSFER_FROM);
-					sendMessage(rebalance_msg);
+					// get the ecs server to send a message to the successor server to transfer kv's to new server
+					ecsServer.invokeTransferTo(successorName, server_name);
 				}
 
-				returnMsg = new ECSMessage("", StatusType.NEW_SERVER_SUCCESS);
+				sendMessage(new ECSMessage("", StatusType.NEW_SERVER_SUCCESS));
 				//TreeMap<String, String> metadata = ecsServer.getMetaData();
 				// if (metadata != null) {
 				// 	returnMsg = new ECSMessage(metadata, StatusType.METADATA_SUCCESS);
@@ -208,12 +223,55 @@ public class KVServerConnection implements Runnable {
 			} catch (Exception e) {
 				logger.error("Error adding new server");
 				e.printStackTrace();
-				returnMsg = new ECSMessage("", StatusType.NEW_SERVER_ERROR);
+				sendMessage(new ECSMessage("", StatusType.NEW_SERVER_ERROR));
 			}
+		} else if (msg.getStatus() == StatusType.SHUTDOWN_SERVER) {
+			String successorName = ecsServer.getSuccesorServer(serverName);
+			logger.info("Successor is " + successorName);
+			ecsServer.removeFromMetaData(msg.getValue());
+
+			if (successorName != null) {
+				// send metadata update to successor server
+				ecsServer.updateMetaData(successorName);
+				// invoke transfer of all data from shutting down server to successor server
+				sendMessage(new ECSMessage(successorName, StatusType.TRANSFER_ALL_TO_REQUEST));
+				// sendMessage(new ECSMessage(successorName));
+				// if (successorName != null) {
+				// 	// get the ecs server to send a message to the successor server to transfer kv's to new server
+				// 	ecsServer.invokeTransferAllTo(serverName, successorName);
+				// }
+			} else {
+				logger.info("No other servers are running, proceed with shutdown");
+				// let the shutting server know it's safe to shutdown
+				sendMessage(new ECSMessage("Server Shutdown", StatusType.SHUTDOWN_SERVER_SUCCESS));
+				isOpen = false;
+			}
+
+		} else if (msg.getStatus() == StatusType.TRANSFER_TO_REQUEST_SUCCESS) {
+			logger.info("Successfuly transferred the kv pairs between servers");
+
+			// update all kvservers meta data
+			ecsServer.updateMetaDatas();
+
+		} else if (msg.getStatus() == StatusType.TRANSFER_TO_REQUEST_ERROR) {
+			logger.error("TRANSFER_TO_REQUEST_ERROR");
+		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO_REQUEST_SUCCESS) {
+			logger.info("Successfuly transferred allthe kv pairs between servers");
+
+			// update all kvservers meta data
+			ecsServer.updateMetaDatas();
+
+			// let the shutting server know it's safe to shutdown
+			sendMessage(new ECSMessage("Shutdown Successful", StatusType.SHUTDOWN_SERVER_SUCCESS));
+			//isOpen = false;
+		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO_REQUEST_ERROR) {
+			logger.error("TRANSFER_TO_REQUEST_ERROR, unable to shutdown!");
 		}
 
-		return returnMsg;
-
 	}
+
+	// private void shutdown() {
+	// 	logger.info("Shutting down KVServerConnection")
+	// }
 
 }

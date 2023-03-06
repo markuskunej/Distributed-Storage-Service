@@ -55,7 +55,7 @@ public class KVClientConnection implements Runnable {
 			input = kvClientSocket.getInputStream();
 
 			sendMessage(new KVMessage(
-					"Connection to MSRG Echo server established: "
+					"Connection to KVServer established: "
 							+ kvClientSocket.getLocalAddress() + " / "
 							+ kvClientSocket.getLocalPort(),
 					null, StatusType.STRING));
@@ -201,6 +201,24 @@ public class KVClientConnection implements Runnable {
 			} catch (Exception e) {
 				logger.error("Error trying getKV");
 				returnStatus = StatusType.GET_ERROR;
+			}
+		} else if (msg.getStatus() == StatusType.TRANSFER_TO) {
+			try {
+				kvServer.insertKvPairs(msg.getKey());
+
+				returnStatus = StatusType.TRANSFER_TO_SUCCESS;		
+			} catch (Exception e) {
+				logger.error("Error trying insertKvPairs");
+				returnStatus = StatusType.TRANSFER_TO_ERROR;
+			}
+		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO) {
+			try {
+				kvServer.insertKvPairs(msg.getKey());
+
+				returnStatus = StatusType.TRANSFER_ALL_TO_SUCCESS;		
+			} catch (Exception e) {
+				logger.error("Error trying insertKvPairs");
+				returnStatus = StatusType.TRANSFER_ALL_TO_ERROR;
 			}
 		}
 
