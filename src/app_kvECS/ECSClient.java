@@ -107,6 +107,11 @@ public class ECSClient extends Thread implements IECSClient {
     // public void addToConnections(String server_name, KVServerConnection conn) {
     //     connectionMap.put(server_name, conn);
     // }
+    public void removeFromConnections(String key) {
+        logger.info("removing " + key + " from connectionsMap.");
+        connectionMap.remove(key);
+        logger.info("New Connection Map is: " + connectionMap.toString());
+    }
 
     public void updateConnectionMap(String oldKey, String newKey) {
         KVServerConnection conn = connectionMap.remove(oldKey);

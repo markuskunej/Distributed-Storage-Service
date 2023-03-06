@@ -4,6 +4,7 @@ import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.util.concurrent.CountDownLatch;
 
 import org.apache.log4j.*;
 
@@ -26,6 +27,7 @@ public class ECSMessageHandler implements Runnable {
 	private KVServer kvServer;
 
 	private Thread shutdownHook;
+	private final CountDownLatch shutdownLatch = new CountDownLatch(1);
 
     /**
 	 * Constructs a new KVServerConnection object for a given TCP socket.
@@ -208,6 +210,7 @@ public class ECSMessageHandler implements Runnable {
 			kvServer.deleteDataFile();
 			logger.info("after delete data");
 			isOpen = false;
+			shutdownLatch.countDown();
 		} else if (msg.getStatus() == StatusType.SHUTDOWN_SERVER_ERROR) {
 			logger.error("SHUTDOWN_SERVER_ERROR");
 		}
@@ -231,13 +234,15 @@ public class ECSMessageHandler implements Runnable {
 		// wait for final 
 		while (isOpen) {
 			try {
-				logger.info("before receive");
-				ECSMessage latestECSMsg = receiveMessageFromECS();
-				handleECSMessage(latestECSMsg);
+				logger.info("waiting in shutdown");
+				shutdownLatch.await();
+				//ECSMessage latestECSMsg = receiveMessageFromECS();
+				//handleECSMessage(latestECSMsg);
 			
-			} catch (IOException ioe) {
-				ioe.printStackTrace();
-				logger.error("Error! Connection to ECS lost before shutdown complete!");
+			} catch (InterruptedException e) {
+				//ioe.printStackTrace();
+				//logger.error("Error! Connection to ECS lost before shutdown complete!");
+				Thread.currentThread().interrupt();
 				isOpen = false;
 			} catch (Exception e) {
 				e.printStackTrace();

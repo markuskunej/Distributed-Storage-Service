@@ -293,6 +293,7 @@ public class KVServer extends Thread implements IKVServer {
 	public String getKvsToTransfer(String successorServer) {
 		StringBuilder kv_pairs = new StringBuilder();
 		
+		logger.info("successor server is " + successorServer);
 
 		String successorHash = hash(successorServer);
 		// transfer
@@ -307,7 +308,7 @@ public class KVServer extends Thread implements IKVServer {
 			
 			while (enu.hasMoreElements()) {
 				String key = (String) enu.nextElement();
-
+				logger.info("key hash = " + hash(key) + " serverHash = " + successorHash);
 				if (hash(key).compareTo(successorHash) == 1) {
 					// since the key's hash is greater then the new server's hash
 					// it should now belong to the new server
@@ -350,7 +351,6 @@ public class KVServer extends Thread implements IKVServer {
 			if (kv_pairs != null && kv_pairs.length() > 0) {
 				kv_pairs.deleteCharAt(kv_pairs.length() - 1);
 			}
-			
 			return kv_pairs.toString();
 
 		} catch (Exception e) {
@@ -501,7 +501,7 @@ public class KVServer extends Thread implements IKVServer {
 		this.running = false;
 		try {
 			serverSocket.close();
-			//ecsSocket.close();
+			ecsSocket.close();
 		} catch (IOException e) {
 			logger.error("Error! " +
 					"Unable to close socket on port: " + port + "\n", e);

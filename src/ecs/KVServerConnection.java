@@ -229,7 +229,7 @@ public class KVServerConnection implements Runnable {
 			String successorName = ecsServer.getSuccesorServer(serverName);
 			logger.info("Successor is " + successorName);
 			ecsServer.removeFromMetaData(msg.getValue());
-
+			ecsServer.removeFromConnections(msg.getValue());
 			if (successorName != null) {
 				// send metadata update to successor server
 				ecsServer.updateMetaData(successorName);
@@ -263,7 +263,7 @@ public class KVServerConnection implements Runnable {
 
 			// let the shutting server know it's safe to shutdown
 			sendMessage(new ECSMessage("Shutdown Successful", StatusType.SHUTDOWN_SERVER_SUCCESS));
-			//isOpen = false;
+			isOpen = false;
 		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO_REQUEST_ERROR) {
 			logger.error("TRANSFER_TO_REQUEST_ERROR, unable to shutdown!");
 		}
