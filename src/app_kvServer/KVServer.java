@@ -33,6 +33,10 @@ import shared.messages.KVMessage;
 import shared.messages.IKVMessage.StatusType;
 import shared.messages.IECSMessage;
 
+import java.util.ArrayList;
+import java.util.List;
+import shared.messages.IECSMessage;
+
 public class KVServer extends Thread implements IKVServer {
 
 	private static Logger logger = Logger.getRootLogger();
@@ -61,6 +65,10 @@ public class KVServer extends Thread implements IKVServer {
 	private ECSMessageHandler ecsHandler;
 	private ServerMessageHandler serverMsgHandler;
 
+	private int replacementType;
+	private ArrayList keySet;
+	private int keyCounter;
+	private Properties cache;
 
 	/**
 	 * Start KV Server at given port
@@ -88,7 +96,10 @@ public class KVServer extends Thread implements IKVServer {
 		this.write_lock = false;
 		this.metadata = new TreeMap<String, String>();
 		
-		
+		this.replacementType = 0; 
+		this.keySet = new ArrayList<String>();
+		this.keyCounter = 0;
+		this.cache = new Properties();
 	}
 
 	@Override
@@ -189,6 +200,15 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public String getKV(String key) throws Exception {
+		// Try cache first
+		String val = cache.getProperty(key);
+
+		if (val != null) {
+			logger.info("Value found in cache");
+			return val;
+		}
+
+		// If not in cache, check deep storage
 		
 
 		try (InputStream input = new FileInputStream(fileName)) {
@@ -210,6 +230,36 @@ public class KVServer extends Thread implements IKVServer {
 
 			input.close();
 
+			// Check if cache is full
+			if (this.keyCounter == this.cacheSize) {
+				int index;
+				switch (this.replacementType) {
+					case 0:
+					// LRU
+					// remove last (least recently used) element of array
+					index = this.keyCounter - 1;
+					this.keySet.remove(index);
+					// insert key/value taken from deep storage into the cache
+					this.keySet.add(0, key);
+					this.cache.setProperty(key, value);
+					break;
+					case 1:
+					// FIFO
+					// remove last element of array
+					index = this.keyCounter - 1;
+					this.keySet.remove(index);
+					// insert key/value taken from deep storage into the cache
+					this.keySet.add(0, key);
+					this.cache.setProperty(key, value);
+					break;
+					case 2:
+					// LFU
+					break;
+					default:
+					logger.error("Replacement Strategy error: Please ensure proper replacement strategy value");
+				}
+			}
+
 			return value;
 
 		} catch (Exception e) {
@@ -221,6 +271,59 @@ public class KVServer extends Thread implements IKVServer {
 
 	@Override
 	public StatusType putKV(String key, String value) throws Exception {
+		// Write to the cache first
+		if (this.keyCounter == this.cacheSize) {
+			String val;
+			switch (this.replacementType) {
+				case 0:
+				// LRU
+				// Check if it's in the cache already
+				val = cache.getProperty(key);
+				// if in the cache, shift it to the front
+				if (val != null) {
+					int index = this.keySet.indexOf(key);
+					this.keySet.remove(index);
+					// re-insert the key/value into the cache
+					this.keySet.add(0, key);
+					this.cache.setProperty(key, value);
+				} else {
+					if (this.keyCounter == this.cacheSize) {
+						// if not in the cache, remove the last element and insert the new element
+						int index = this.keyCounter - 1;
+						this.keySet.remove(index);
+					}
+					// insert the key/value into the cache
+					this.keyCounter += 1;
+					this.keySet.add(0, key);
+					this.cache.setProperty(key, value);
+				}
+				break;
+				case 1:
+				// FIFO
+				// Check if it's in the cache already
+				val = cache.getProperty(key);
+				// if in the cache, leave it be
+				if (val == null) {
+					if (this.keyCounter == this.cacheSize) {
+						// if not in the cache, remove the last element and insert the new element
+						int index = this.keyCounter - 1;
+						this.keySet.remove(index);
+					}
+					// insert the key/value into the cache
+					this.keyCounter += 1;
+					this.keySet.add(0, key);
+					this.cache.setProperty(key, value);
+				}
+				// if not in the cache, insert in the front
+				break;
+				case 2:
+				// LFU
+				break;
+				default:
+				logger.error("Replacement Strategy error: Please ensure proper replacement strategy value");
+			}
+		}
+		
 		try (InputStream input = new FileInputStream(fileName)) {
 			StatusType status;
 			Properties prop = new Properties();

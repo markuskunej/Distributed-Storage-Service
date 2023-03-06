@@ -10,7 +10,14 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.Set;
+
+import java.util.Map;
+import java.util.TreeMap;
+import java.math.BigInteger;
+
+import org.apache.commons.codec.digest.DigestUtils;
 
 import org.apache.log4j.Logger;
 
@@ -30,6 +37,8 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 
 	private static final int BUFFER_SIZE = 1024;
 	private static final int DROP_SIZE = 1024 * BUFFER_SIZE;
+	
+	private TreeMap<String, String> metaData;
 
 	/**
 	 * Initialize KVStore with address and port of KVServer
@@ -204,16 +213,107 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 
 	@Override
 	public KVMessage put(String key, String value) throws Exception {
+		connectOnLoss();
+
 		KVMessage msg = new KVMessage(key, value, StatusType.PUT);
 		sendMessage(msg);
 		logger.info("after sendMessage in kvstore");
-		return msg;
+
+		KVMessage message = reconnectToServer(msg, StatusType.PUT, key, value);
+		return message;
+		// return msg;
 	}
 
 	@Override
 	public KVMessage get(String key) throws Exception {
+		connectOnLoss();
+		
 		KVMessage msg = new KVMessage(key, null, StatusType.GET);
 		sendMessage(msg);
-		return msg;
+
+		KVMessage message = reconnectToServer(msg, StatusType.GET, key, null);
+		return message;
+		// return msg;
+	}
+
+    public boolean connected() {
+	try{
+			// Note:
+			// getInetAddress() returns the address to which the socket is connected
+			// isReachable() checks if the address is reachable, times out after 10 milliseconds
+	    if (kvStoreSocket != null && kvStoreSocket.getInetAddress().isReachable(10))
+		return true;
+	    else
+		return false;
+	}
+	catch (IOException ioe){
+	    return false;
+	}
+    }
+
+	private void getResponsible(String key) {
+		try {
+			if (metaData != null) {
+				String hash = DigestUtils.md5Hex(key);
+				// Note: EntrySet() returns a set of the same elements already present in the hash map
+				Map.Entry<String, String> server = metaData.floorEntry(key);
+				String serverValue = server.getValue();
+
+				String parts[] = serverValue.split(":");
+				String metaAddress = parts[0];
+				String metaPort = parts[1];
+
+				this.address = metaAddress;
+				this.port = Integer.parseInt(metaPort);
+
+			} else {
+				logger.error("Recent metadata could not be retreived");
+			}
+		} catch (Exception e) {
+			logger.error("Responsible server" + e);
+		}
+	}
+
+	private KVMessage reconnectToServer(KVMessage oldMessage, StatusType status, String key, String value) throws Exception {
+		// store message
+		KVMessage message = oldMessage;
+		// loop while the message status is "server not responsible"
+		while (message.getStatus() == StatusType.SERVER_NOT_RESPONSIBLE) {
+			// get the metadata from the message
+			// store metadata in class variable
+			disconnect();
+			// find responsible server and connect to it, repeat message receive and send
+			getResponsible(key);
+			connect();
+			// send message
+			KVMessage msg = new KVMessage(key, value, message.getStatus());
+			sendMessage(msg);
+			message = receiveMessage();
+		}
+
+		return message;
+	}
+
+	private void connectOnLoss() {
+		// If a connection is lost, try to reconnect with appropriate metadata
+		try {
+			// loop while not connected
+			while(!connected()) {
+				for (String meta : metaData.values()) {
+					// split by semicolon, get address and port
+					String parts[] = meta.split(":");
+					String metaAddress = parts[0];
+					String metaPort = parts[1];
+					if (Integer.parseInt(metaPort) != this.port) {
+						this.port = Integer.parseInt(metaPort);
+						this.address = metaAddress;
+						disconnect();
+						connect();
+					}
+				}
+			}
+		} catch (Exception e) {
+			logger.error("Server connection failure");
+		}
 	}
 }
