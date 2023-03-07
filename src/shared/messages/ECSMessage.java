@@ -94,7 +94,11 @@ public class ECSMessage implements Serializable, IECSMessage {
 		System.out.println("msg is " + msg);
 		String[] splitted = msg.split("~");
 		this.value = splitted[0].trim();
-		this.status = StatusType.valueOf(splitted[1].trim());
+		if (splitted.length > 1) {
+			this.status = StatusType.valueOf(splitted[1].trim());
+		} else {
+			this.status = null;
+		}
 	}
 
 	private String treeToString(TreeMap<String, String> tree) {

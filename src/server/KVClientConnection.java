@@ -58,7 +58,10 @@ public class KVClientConnection implements Runnable {
 					"Connection to KVServer established: "
 							+ kvClientSocket.getLocalAddress() + " / "
 							+ kvClientSocket.getLocalPort(),
-					null, StatusType.STRING));
+					"", StatusType.STRING));
+
+			// send initial metadata update
+			sendMessage(new KVMessage("", kvServer.getMetaData(), StatusType.METADATA));
 
 			while (isOpen) {
 				try {
@@ -183,24 +186,32 @@ public class KVClientConnection implements Runnable {
 		String returnValue = msg.getValue();
 		StatusType returnStatus = msg.getStatus();
 		if (msg.getStatus() == StatusType.PUT) {
-			try {
-				returnStatus = kvServer.putKV(msg.getKey(), msg.getValue());
-			} catch (Exception e) {
-				logger.error("Error trying putKV");
-				returnStatus = StatusType.PUT_ERROR;
+			if (kvServer.isResponsible(msg.getKey())) {
+				try {
+					returnStatus = kvServer.putKV(msg.getKey(), msg.getValue());
+				} catch (Exception e) {
+					logger.error("Error trying putKV");
+					returnStatus = StatusType.PUT_ERROR;
+				}
+			} else {
+				returnStatus = StatusType.SERVER_NOT_RESPONSIBLE;
 			}
 		} else if (msg.getStatus() == StatusType.GET) {
-			try {
-				returnValue = kvServer.getKV(msg.getKey());
-				if (returnValue != null) {
-					returnStatus = StatusType.GET_SUCCESS;
-				} else {
+			if (kvServer.isResponsible(msg.getKey())) {
+				try {
+					returnValue = kvServer.getKV(msg.getKey());
+					if (returnValue != null) {
+						returnStatus = StatusType.GET_SUCCESS;
+					} else {
+						returnStatus = StatusType.GET_ERROR;
+					}
+					
+				} catch (Exception e) {
+					logger.error("Error trying getKV");
 					returnStatus = StatusType.GET_ERROR;
 				}
-				
-			} catch (Exception e) {
-				logger.error("Error trying getKV");
-				returnStatus = StatusType.GET_ERROR;
+			} else {
+				returnStatus = StatusType.SERVER_NOT_RESPONSIBLE;
 			}
 		} else if (msg.getStatus() == StatusType.TRANSFER_TO) {
 			try {
@@ -213,6 +224,7 @@ public class KVClientConnection implements Runnable {
 			}
 		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO) {
 			try {
+				logger.info("kv's to add are " + msg.getKey());
 				kvServer.insertKvPairs(msg.getKey());
 
 				returnStatus = StatusType.TRANSFER_ALL_TO_SUCCESS;		
@@ -220,9 +232,25 @@ public class KVClientConnection implements Runnable {
 				logger.error("Error trying insertKvPairs");
 				returnStatus = StatusType.TRANSFER_ALL_TO_ERROR;
 			}
+		} else if (msg.getStatus() == StatusType.KEYRANGE) {
+			try {
+				returnValue = kvServer.getKeyrange();
+				returnStatus = StatusType.KEYRANGE_SUCCESS;
+			} catch (Exception e) {
+				logger.error("Error in getKeyrange");
+				returnStatus = StatusType.KEYRANGE_SUCCESS;
+			}
 		}
 
-		return new KVMessage(msg.getKey(), returnValue, returnStatus);
+		if (returnStatus == StatusType.SERVER_NOT_RESPONSIBLE) {
+			// send metaupdate to kvstore first
+			sendMessage(new KVMessage("Update metadata and retry", "", StatusType.SERVER_NOT_RESPONSIBLE));
+			sendMessage(new KVMessage("", kvServer.getMetaData(), StatusType.METADATA));
+			// retry same message
+			return msg;
+		} else {
+			return new KVMessage(msg.getKey(), returnValue, returnStatus);
+		}
 	}
 
 }

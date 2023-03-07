@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.lang.Thread.State;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.util.HashSet;
@@ -81,6 +82,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
             if (kvStore != null && kvStore.isRunning()) {
                 if (tokens.length == 3) {
                     try {
+                        connectToResponsibleServer(tokens[1]);
                         kvStore.put(tokens[1], tokens[2]);
                     } catch (Exception e) {
                         printError("Unable to send message!");
@@ -88,6 +90,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
                     }
                 } else if (tokens.length == 2) {
                     try {
+                        connectToResponsibleServer(tokens[1]);
                         kvStore.put(tokens[1], null); // delete operation
                     } catch (Exception e) {
                         printError("Unable to send message!");
@@ -104,6 +107,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
             if (kvStore != null && kvStore.isRunning()) {
                 if (tokens.length == 2) {
                     try {
+                        connectToResponsibleServer(tokens[1]);
                         kvStore.get(tokens[1]);
                     } catch (Exception e) {
 
@@ -116,6 +120,21 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 printError("Not connected!");
             }
 
+        } else if (tokens[0].equals("keyrange")) {
+            if (kvStore != null && kvStore.isRunning()) {
+                if (tokens.length == 1) {
+                    try {
+                        kvStore.keyrange();
+                    } catch (Exception e) {
+
+                        disconnect();
+                    }
+                } else {
+                    printError("Incorrect format: expecting keyrange");
+                }
+            } else {
+                printError("Not connected!");
+            }
         } else if (tokens[0].equals("disconnect")) {
             disconnect();
 
@@ -219,12 +238,72 @@ public class KVClient implements IKVClient, ClientSocketListener {
         }
     }
 
+    private void connectToResponsibleServer(String key) {
+        String respServer = kvStore.getResponsible(key);
+        if (!respServer.equals(serverAddress + ":" + serverPort)) {
+            disconnect();
+            String[] respServer_split = respServer.split(":");
+            try {
+                this.serverAddress = respServer_split[0].trim();
+                this.serverPort = Integer.parseInt(respServer_split[1]);
+                newConnection(serverAddress, serverPort);
+                // wait for input / output streams to be initialized
+                while (!kvStore.areStreamsOpen()) {
+                    Thread.sleep(50);
+                }
+            } catch (NumberFormatException nfe) {
+                printError("No valid address. Port must be a number!");
+                logger.info("Unable to parse argument <port>", nfe);
+            } catch (UnknownHostException e) {
+                printError("Unknown Host!");
+                logger.info("Unknown Host!", e);
+            } catch (IOException e) {
+                printError("Could not establish connection!");
+                logger.warn("Could not establish connection!", e);
+            } catch (Exception e) {
+                printError("Could not establish connection!");
+                logger.warn("Could not establish connection!", e);
+            }
+        }
+    }
+    private void retryOperation(KVMessage msg) {
+        try {
+            // retry operations
+            if (msg.getStatus() == StatusType.GET) {
+                kvStore.get(msg.getKey());
+            } else if (msg.getStatus() == StatusType.PUT) {
+                kvStore.put(msg.getKey(), msg.getValue());
+            }
+        } catch (UnknownHostException e) {
+            printError("Unknown Host!");
+            logger.info("Unknown Host!", e);
+        } catch (IOException e) {
+            printError("Could not establish connection!");
+            logger.warn("Could not establish connection!", e);
+        } catch (Exception e) {
+            printError("Error with get or put in retryOperation!");
+            e.printStackTrace();
+        }
+    }
+
     @Override
     public void handleNewMessage(KVMessage msg) {
         if (!stop) {
             StatusType status = msg.getStatus();
             if (status == StatusType.STRING) {
                 System.out.println(msg.getKey());
+            } else if (status == StatusType.METADATA) {
+                logger.debug("new metadata is " + msg.getValueAsMetadata().toString());
+                kvStore.setMetaData(msg.getValueAsMetadata());
+            } else if (status == StatusType.PUT || status == StatusType.GET) {
+                try {
+                    connectToResponsibleServer(msg.getKey());
+                    retryOperation(msg);
+                } catch (Exception e) {
+                    logger.error("Error when retrying the the command to the responsible server!");
+                }
+            } else if (status == StatusType.KEYRANGE_SUCCESS) {
+                System.out.println(msg.getValue());
             } else if (status == StatusType.PUT_SUCCESS) {
                 System.out.println("PUT SUCCESS");
             } else if (status == StatusType.PUT_UPDATE) {

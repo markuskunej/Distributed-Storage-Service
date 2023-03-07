@@ -248,10 +248,19 @@ public class KVServerConnection implements Runnable {
 			}
 
 		} else if (msg.getStatus() == StatusType.TRANSFER_TO_REQUEST_SUCCESS) {
-			logger.info("Successfuly transferred the kv pairs between servers");
+			//logger.info("Successfuly transferred the kv pairs between servers");
 
 			// update all kvservers meta data
 			ecsServer.updateMetaDatas();
+			String kv_pairs_transferred = msg.getValue();
+			// check if any pairs were actually transferred
+			logger.info("kv_pairs_transferred is "+kv_pairs_transferred);
+			if (kv_pairs_transferred == null || kv_pairs_transferred.trim().isEmpty()) {
+				logger.info("No KV Pairs need to be transferred.");
+			} else {
+				//let the server know its safe to now delete the transferred kv pairs
+				sendMessage(new ECSMessage(msg.getValue(), StatusType.SAFE_TO_DELETE));
+			}
 
 		} else if (msg.getStatus() == StatusType.TRANSFER_TO_REQUEST_ERROR) {
 			logger.error("TRANSFER_TO_REQUEST_ERROR");

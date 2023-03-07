@@ -12,9 +12,12 @@ public interface IKVMessage {
 		PUT_ERROR, /* Put - request not successful */
 		DELETE_SUCCESS, /* Delete - request successful */
 		DELETE_ERROR, /* Delete - request successful */
+		KEYRANGE,
 		KEYRANGE_SUCCESS,
 		KEYRANGE_ERROR,
 		STRING, /* pass text using the key param */
+		INITIAL,
+		METADATA,
 		TRANSFER_TO,
 		TRANSFER_TO_SUCCESS,
 		TRANSFER_TO_ERROR,

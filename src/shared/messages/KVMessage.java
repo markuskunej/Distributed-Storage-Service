@@ -1,6 +1,7 @@
 package shared.messages;
 
 import java.io.Serializable;
+import java.util.TreeMap;
 
 public class KVMessage implements Serializable, IKVMessage {
 	private static final long serialVersionUID = 5549512212003782618L;
@@ -16,6 +17,14 @@ public class KVMessage implements Serializable, IKVMessage {
 	public KVMessage(String k, String v, StatusType st) {
 		this.key = k;
 		this.value = v;
+		this.status = st;
+		this.msg = buildMsg();
+		this.msgBytes = toByteArray(msg);
+	}
+
+	public KVMessage(String k, TreeMap<String, String> metadata, StatusType st) {
+		this.key = k;
+		this.value = treeToStr(metadata);
 		this.status = st;
 		this.msg = buildMsg();
 		this.msgBytes = toByteArray(msg);
@@ -94,6 +103,28 @@ public class KVMessage implements Serializable, IKVMessage {
 			this.value = splitted[1].trim();
 			this.status = StatusType.valueOf(splitted[2].trim());
 		}
+	}
+
+	private String treeToStr(TreeMap<String, String> tree) {
+		StringBuilder treeAsString = new StringBuilder();
+		for (String hash : tree.keySet()) {
+			treeAsString.append(hash + "=" + tree.get(hash) + ",");
+		}
+		// delete , at end
+		treeAsString.deleteCharAt(treeAsString.length() -1);
+
+		return treeAsString.toString();
+	}
+
+	public TreeMap<String, String> getValueAsMetadata() {
+		TreeMap<String, String> metadata = new TreeMap<String, String>();
+		String[] entries_arr = value.split(",");
+		for (String entry_str: entries_arr) {
+			String[] entry_split = entry_str.split("=");
+			metadata.put(entry_split[0], entry_split[1]);
+		}
+		
+		return metadata;
 	}
 
 	private byte[] addCtrChars(byte[] bytes) {

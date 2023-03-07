@@ -186,7 +186,7 @@ public class ECSMessageHandler implements Runnable {
 			logger.info("KV_PAIRS IS " + kv_pairs);
 			if (kv_pairs == null || kv_pairs.length() == 0) {
 				logger.info("No KV pairs to transfer");
-				sendMessageToECS(new ECSMessage("No KV Pairs needed to be transferred!", StatusType.TRANSFER_TO_REQUEST_SUCCESS));
+				sendMessageToECS(new ECSMessage(kv_pairs, StatusType.TRANSFER_TO_REQUEST_SUCCESS));
 			} else {
 				logger.info("At least 1 KV pair needs to be transferred, connect to successor server");
 				kvServer.startSuccessorHandler(successorServer, kv_pairs);
@@ -201,8 +201,14 @@ public class ECSMessageHandler implements Runnable {
 			} else {
 				logger.info("At least 1 KV pair needs to be transferred, connect to successor server");
 				kvServer.startSuccessorHandler(successorServer, kv_pairs);
+				logger.info("after start successhor handler in ecs message handler");
 				kvServer.sendServerMessage(new KVMessage(kv_pairs, null, shared.messages.IKVMessage.StatusType.TRANSFER_ALL_TO));
 			}
+
+		} else if (msg.getStatus() == StatusType.SAFE_TO_DELETE) {
+			// now it's safe to delete kv pairs that were transferred
+			logger.info("before deleteKvPairs");
+			kvServer.deleteKvPairs(msg.getValue());
 
 		} else if (msg.getStatus() == StatusType.SHUTDOWN_SERVER_SUCCESS) {
 			// now it's safe to delete all data + files

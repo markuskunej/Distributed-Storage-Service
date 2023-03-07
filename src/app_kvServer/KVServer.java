@@ -11,10 +11,13 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.math.BigInteger;
 import java.util.Enumeration;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.Map;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.cli.*;
@@ -61,7 +64,7 @@ public class KVServer extends Thread implements IKVServer {
 	private InputStream ecs_input;
 	private String dataDir;
 	private TreeMap<String, String> metadata;
-	private String hash;
+	private String serverHash;
 	private ECSMessageHandler ecsHandler;
 	private ServerMessageHandler serverMsgHandler;
 
@@ -88,7 +91,7 @@ public class KVServer extends Thread implements IKVServer {
 		this.ecs_port = Integer.parseInt(ecs[1]);
 		this.address = address;
 		this.port = port;
-		this.hash = hash(address + ":" + port);
+		this.serverHash = hash(address + ":" + port);
 		this.cacheSize = cacheSize;
 		this.strategy = strategy;
 		this.dataDir = dataDir;
@@ -126,7 +129,7 @@ public class KVServer extends Thread implements IKVServer {
 	}
 
 	public String getHash() {
-		return hash;
+		return serverHash;
 	}
 
 	@Override
@@ -142,6 +145,37 @@ public class KVServer extends Thread implements IKVServer {
 	public TreeMap<String, String> getMetaData() {
         return metadata;
     }
+
+	public String md5SubtractOne(String hash) {
+		BigInteger decimalBigInt = new BigInteger(hash, 16); // Parse hex string as a BigInteger
+		decimalBigInt = decimalBigInt.subtract(BigInteger.ONE); // Subtract 1 from the BigInteger
+		String resultHexString = decimalBigInt.toString(16); // Convert the result back to a hex string
+		while (resultHexString.length() < 32) {
+			resultHexString = "0" + resultHexString; // Pad result with leading zeros if necessary
+		}
+		return resultHexString;
+	}
+
+	public String getKeyrange() {
+		StringBuilder keyrange_str = new StringBuilder();
+		// String firstServerStart = metadata.firstKey();
+		// String firstServerName = metadata.get(firstServerStart);
+		// String lastServerEndHash = md5SubtractOne(firstServerStart)
+		// boolean onFirst
+		for (String serverHash : metadata.keySet()) {
+			String startHash = serverHash;
+			String endHash = metadata.higherKey(startHash);
+			if (endHash == null) {
+				// at the last server in hash ring, make end hash one less than first hash
+				endHash = metadata.firstKey();
+			}
+			String serverName = metadata.get(serverHash);
+			keyrange_str.append(startHash + "," + md5SubtractOne(endHash) + "," + serverName + ";");
+		}
+		keyrange_str.append("\r\n");
+
+		return keyrange_str.toString();
+	}
 
 	public void setMetaData(TreeMap<String, String> metadata) {
 		this.metadata = metadata;
@@ -196,6 +230,36 @@ public class KVServer extends Thread implements IKVServer {
 		}
 
 		return exists;
+	}
+
+	public boolean isResponsible (String key) {
+		try {
+			if (metadata != null) {
+				String hash = DigestUtils.md5Hex(key);
+				Map.Entry<String, String> resp_server_entry = metadata.floorEntry(hash);
+				
+				if (resp_server_entry == null) {
+					//this means the key's hash is lower then all the servers, the responsible server would then be the largest hash
+					resp_server_entry = metadata.lastEntry();
+				}
+				logger.info("resp_server_entry is " + resp_server_entry + " vs " + serverHash);
+				logger.info("== " + (serverHash == resp_server_entry.getKey()));
+				logger.info("equals  " + (serverHash.equals(resp_server_entry.getKey())));
+				logger.info("equals with trim " + (serverHash.trim().equals(resp_server_entry.getKey().trim())));
+
+				// see if hashes match
+				return (serverHash.equals(resp_server_entry.getKey()));
+
+			} else {
+				logger.error("Server doesn't have metadata");
+				System.exit(1);
+				return false;
+			}
+		} catch (Exception e) {
+			logger.error("Error in isResponsible");
+			System.exit(1);
+			return false;
+		}
 	}
 
 	@Override
@@ -379,12 +443,14 @@ public class KVServer extends Thread implements IKVServer {
 			logger.error("Error! Unable to connect to successor server.");
 		}		
 		// start the handler for the successor server
-		serverMsgHandler = new ServerMessageHandler(successorServerSocket, this, kv_pairs);
+		this.serverMsgHandler = new ServerMessageHandler(successorServerSocket, this, kv_pairs);
 		new Thread(serverMsgHandler).start();
 	}
 
 	public void sendServerMessage(KVMessage msg) {
+		logger.info("in send Server Message");
 		if (serverMsgHandler != null) {
+			logger.info("in send Server Message, handler not null");
 			try {
 				serverMsgHandler.sendMessage(msg);
 			} catch (IOException ioe) {
@@ -411,8 +477,13 @@ public class KVServer extends Thread implements IKVServer {
 			
 			while (enu.hasMoreElements()) {
 				String key = (String) enu.nextElement();
-				logger.info("key hash = " + hash(key) + " serverHash = " + successorHash);
-				if (hash(key).compareTo(successorHash) == 1) {
+				String hash_key = hash(key);
+				//logger.info("key hash = " + hash_key + ", successorHash = " + successorHash + ", serverHash = " + serverHash);
+				
+				// either the hash key is larger than the successor's hash, or both the server and successor hashes are larger than the key hash
+				// i.e. the key hash is just over 0 on the hash ring, and both the other server are to the left of the 0.
+				// see if current server would no llonger be responsible for 
+				if (shouldBeTransferred(hash_key, successorHash)) {
 					// since the key's hash is greater then the new server's hash
 					// it should now belong to the new server
 					String value = prop.getProperty(key);
@@ -430,6 +501,18 @@ public class KVServer extends Thread implements IKVServer {
 			logger.error("ERROR in getKvsToTransfer \n", e);
 			return null;
 		}
+	}
+
+	private boolean shouldBeTransferred(String keyHash, String successorHash) {
+		TreeSet<String> serverHashes = new TreeSet<>();
+		serverHashes.add(successorHash);
+		serverHashes.add(serverHash);
+		String responsibleHash = serverHashes.floor(keyHash);
+		if (responsibleHash == null) {
+			// both servers have higher hashes, closest going left is the higher of the two
+			responsibleHash = serverHashes.last();
+		}
+		return responsibleHash.equals(successorHash);
 	}
 
 	public String getAllKvs() {
@@ -490,6 +573,19 @@ public class KVServer extends Thread implements IKVServer {
 			// storage.clear();
 		} catch (Exception e) {
 			logger.error("Cannot clear Storage. \n", e);
+		}
+	}
+
+	public void deleteKvPairs(String kv_pairs) {
+		try {
+			String[] splitted_pairs = kv_pairs.split(",");
+			for (String kv_pair : splitted_pairs) {
+				String key = kv_pair.split("=")[0];
+				// delete kv_pair
+				putKV(key, null);
+			}
+		} catch (Exception e) {
+			logger.error("Error in KVServer.deleteKvPairs");
 		}
 	}
 
