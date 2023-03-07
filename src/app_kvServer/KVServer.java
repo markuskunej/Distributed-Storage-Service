@@ -37,6 +37,7 @@ import shared.messages.IKVMessage.StatusType;
 import shared.messages.IECSMessage;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import shared.messages.IECSMessage;
 
@@ -68,10 +69,11 @@ public class KVServer extends Thread implements IKVServer {
 	private ECSMessageHandler ecsHandler;
 	private ServerMessageHandler serverMsgHandler;
 
-	private int replacementType;
 	private ArrayList keySet;
 	private int keyCounter;
 	private Properties cache;
+
+	private ArrayList lfuFreq;
 
 	/**
 	 * Start KV Server at given port
@@ -99,10 +101,11 @@ public class KVServer extends Thread implements IKVServer {
 		this.write_lock = false;
 		this.metadata = new TreeMap<String, String>();
 		
-		this.replacementType = 0; 
 		this.keySet = new ArrayList<String>();
 		this.keyCounter = 0;
 		this.cache = new Properties();
+
+		this.lfuFreq = new ArrayList<Integer>();
 	}
 
 	@Override
@@ -269,6 +272,29 @@ public class KVServer extends Thread implements IKVServer {
 
 		if (val != null) {
 			logger.info("Value found in cache");
+			// update LRU/LFU list, FIFO does not change
+			int index;
+			switch (this.strategy) {
+				case LRU:
+				// Move key from previous position to the front - it is most recently used
+				index = this.keySet.indexOf(key);
+				this.keySet.remove(index);
+				this.keySet.add(0, key);
+				break;
+				case FIFO:
+				logger.info("FIFO replacement strategy: no modification required");
+				break;
+				case LFU:
+				// LFU
+				index = this.keySet.indexOf(key);
+				Integer current = (Integer)this.lfuFreq.get(index);
+				this.lfuFreq.set(index, (current + 1));
+				break;
+				default:
+				logger.error("Replacement Strategy error: Please ensure proper replacement strategy value");
+			}
+
+
 			return val;
 		}
 
@@ -297,27 +323,70 @@ public class KVServer extends Thread implements IKVServer {
 			// Check if cache is full
 			if (this.keyCounter == this.cacheSize) {
 				int index;
-				switch (this.replacementType) {
-					case 0:
+				String removeKey;
+				switch (this.strategy) {
+					case LRU:
 					// LRU
 					// remove last (least recently used) element of array
 					index = this.keyCounter - 1;
+					removeKey = (String)this.keySet.get(index);
 					this.keySet.remove(index);
+					this.cache.remove(removeKey);
 					// insert key/value taken from deep storage into the cache
 					this.keySet.add(0, key);
 					this.cache.setProperty(key, value);
 					break;
-					case 1:
+					case FIFO:
 					// FIFO
 					// remove last element of array
 					index = this.keyCounter - 1;
+					removeKey = (String)this.keySet.get(index);
 					this.keySet.remove(index);
+					this.cache.remove(removeKey);
 					// insert key/value taken from deep storage into the cache
 					this.keySet.add(0, key);
 					this.cache.setProperty(key, value);
 					break;
-					case 2:
+					case LFU:
 					// LFU
+					// Find minimum value in list
+					Integer min = (Integer)Collections.min(this.lfuFreq);
+					// If duplicate minimums exist, remove first occurence (arbitrarily)
+					index = this.lfuFreq.indexOf(min);
+					removeKey = (String)this.keySet.get(index);
+					this.keySet.remove(index);
+					this.lfuFreq.remove(index);
+					this.cache.remove(removeKey);
+					// insert new value with frequency of 1
+					this.keySet.add(0, key);
+					this.lfuFreq.add(0, 1);
+					this.cache.setProperty(key, value);
+					break;
+					default:
+					logger.error("Replacement Strategy error: Please ensure proper replacement strategy value");
+				}
+			} else {
+				// not full, just write to cache
+				int index;
+				switch (this.strategy) {
+					case LRU:
+					// LRU
+					// insert key/value taken from deep storage into the cache
+					this.keySet.add(0, key);
+					this.cache.setProperty(key, value);
+					break;
+					case FIFO:
+					// FIFO
+					// insert key/value taken from deep storage into the cache
+					this.keySet.add(0, key);
+					this.cache.setProperty(key, value);
+					break;
+					case LFU:
+					// LFU
+					// insert new value with frequency of 1
+					this.keySet.add(0, key);
+					this.lfuFreq.add(0, 1);
+					this.cache.setProperty(key, value);
 					break;
 					default:
 					logger.error("Replacement Strategy error: Please ensure proper replacement strategy value");
@@ -338,8 +407,9 @@ public class KVServer extends Thread implements IKVServer {
 		// Write to the cache first
 		if (this.keyCounter == this.cacheSize) {
 			String val;
-			switch (this.replacementType) {
-				case 0:
+			String removeKey;
+			switch (this.strategy) {
+				case LRU:
 				// LRU
 				// Check if it's in the cache already
 				val = cache.getProperty(key);
@@ -351,37 +421,110 @@ public class KVServer extends Thread implements IKVServer {
 					this.keySet.add(0, key);
 					this.cache.setProperty(key, value);
 				} else {
-					if (this.keyCounter == this.cacheSize) {
-						// if not in the cache, remove the last element and insert the new element
-						int index = this.keyCounter - 1;
-						this.keySet.remove(index);
-					}
+					int index = this.keyCounter - 1;
+					removeKey = (String)this.keySet.get(index);
+					this.keySet.remove(index);
+					this.cache.remove(removeKey);
 					// insert the key/value into the cache
-					this.keyCounter += 1;
 					this.keySet.add(0, key);
 					this.cache.setProperty(key, value);
 				}
 				break;
-				case 1:
+				case FIFO:
 				// FIFO
 				// Check if it's in the cache already
 				val = cache.getProperty(key);
 				// if in the cache, leave it be
 				if (val == null) {
-					if (this.keyCounter == this.cacheSize) {
-						// if not in the cache, remove the last element and insert the new element
-						int index = this.keyCounter - 1;
-						this.keySet.remove(index);
-					}
+					// if not in the cache, remove the last element and insert the new element
+					int index = this.keyCounter - 1;
+					removeKey = (String)this.keySet.get(index);
+					this.keySet.remove(index);
+					this.cache.remove(removeKey);
 					// insert the key/value into the cache
-					this.keyCounter += 1;
 					this.keySet.add(0, key);
 					this.cache.setProperty(key, value);
 				}
 				// if not in the cache, insert in the front
 				break;
-				case 2:
+				case LFU:
 				// LFU
+				// Check if it's in the cache already
+				val = cache.getProperty(key);
+				// if in the cache, just update frequency value
+				if (val != null) {
+					int index = this.keySet.indexOf(key);
+					Integer current = (Integer)this.lfuFreq.get(index);
+					this.lfuFreq.set(index, (current + 1));
+				// if not in the cache, remove lowest frequency value and insert new value with frequency of 1
+				} else {
+					Integer min = (Integer)Collections.min(this.lfuFreq);
+					// If duplicate minimums exist, remove first occurence (arbitrarily)
+					int index = this.lfuFreq.indexOf(min);
+					removeKey = (String)this.keySet.get(index);
+					this.keySet.remove(index);
+					this.lfuFreq.remove(index);
+					this.cache.remove(removeKey);
+					// insert new value with frequency of 1
+					this.keySet.add(0, key);
+					this.lfuFreq.add(0, 1);
+					this.cache.setProperty(key, value);
+				}
+				break;
+				default:
+				logger.error("Replacement Strategy error: Please ensure proper replacement strategy value");
+			}
+		} else {
+			// cache is not full
+			String val;
+			switch (this.strategy) {
+				case LRU:
+				// LRU
+				// Check if it's in the cache already
+				val = cache.getProperty(key);
+				// if in the cache, shift it to the front
+				if (val != null) {
+					int index = this.keySet.indexOf(key);
+					this.keySet.remove(index);
+					// re-insert the key/value into the cache
+					this.keySet.add(0, key);
+					this.cache.setProperty(key, value);
+				} else {
+					// insert the key/value into the cache
+					this.keySet.add(0, key);
+					this.cache.setProperty(key, value);
+					this.keyCounter += 1;
+				}
+				break;
+				case FIFO:
+				// FIFO
+				// Check if it's in the cache already
+				val = cache.getProperty(key);
+				// if in the cache, leave it be
+				if (val == null) {
+					// insert the key/value into the cache
+					this.keySet.add(0, key);
+					this.cache.setProperty(key, value);
+					this.keyCounter += 1;
+				}
+				// if not in the cache, insert in the front
+				break;
+				case LFU:
+				// LFU
+				// Check if it's in the cache already
+				val = cache.getProperty(key);
+				// if in the cache, just update frequency value
+				if (val != null) {
+					int index = this.keySet.indexOf(key);
+					Integer current = (Integer)this.lfuFreq.get(index);
+					this.lfuFreq.set(index, (current + 1));
+				// if not in the cache, remove lowest frequency value and insert new value with frequency of 1
+				} else {
+					// insert new value with frequency of 1
+					this.keySet.add(0, key);
+					this.lfuFreq.add(0, 1);
+					this.cache.setProperty(key, value);
+				}
 				break;
 				default:
 				logger.error("Replacement Strategy error: Please ensure proper replacement strategy value");
