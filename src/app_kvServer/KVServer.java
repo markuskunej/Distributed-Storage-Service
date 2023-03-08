@@ -411,44 +411,49 @@ public class KVServer extends Thread implements IKVServer {
 	@Override
 	public StatusType putKV(String key, String value) throws Exception {
 		// check if value is null - delete operation
-		if (value == null) {
+		if (value == null || value == "") {
 			// check if value is in cache
 			String val = cache.getProperty(key);
-			// There exists a key-value pair in the cache, remove depends on cache strategy
-			// By default, start status as DELETE_ERROR;
-			StatusType status = StatusType.DELETE_ERROR;
-			int index;
-			switch (this.strategy) {
-				case LRU:
-				index = this.keySet.indexOf(key);
-				this.keySet.remove(index);
-				this.keyCounter -= 1;
-				this.cache.remove(key);
+			if (val != null) {
+				// There exists a key-value pair in the cache, remove depends on cache strategy
+				// By default, start status as DELETE_ERROR;
+				StatusType status = StatusType.DELETE_ERROR;
+				int index;
+				switch (this.strategy) {
+					case LRU:
+					index = this.keySet.indexOf(key);
+					this.keySet.remove(index);
+					this.keyCounter -= 1;
+					this.cache.remove(key);
 
-				status = StatusType.DELETE_SUCCESS;
-				logger.info("Deleting key-value pair from cache: Key :: " + key + ", Value :: " + val.toString() + "\n");
-				break;
-				case FIFO:
-				index = this.keySet.indexOf(key);
-				this.keySet.remove(index);
-				this.keyCounter -= 1;
-				this.cache.remove(key);
+					status = StatusType.DELETE_SUCCESS;
+					logger.info("Deleting key-value pair from cache: Key :: " + key + ", Value :: " + val.toString() + "\n");
+					break;
+					case FIFO:
+					index = this.keySet.indexOf(key);
+					this.keySet.remove(index);
+					this.keyCounter -= 1;
+					this.cache.remove(key);
 
-				status = StatusType.DELETE_SUCCESS;
-				logger.info("Deleting key-value pair from cache: Key :: " + key + ", Value :: " + val.toString() + "\n");
-				break;
-				case LFU:
-				index = this.keySet.indexOf(key);
-				this.keySet.remove(index);
-				this.lfuFreq.remove(index);
-				this.keyCounter -= 1;
-				this.cache.remove(key);
+					status = StatusType.DELETE_SUCCESS;
+					logger.info("Deleting key-value pair from cache: Key :: " + key + ", Value :: " + val.toString() + "\n");
+					break;
+					case LFU:
+					index = this.keySet.indexOf(key);
+					this.keySet.remove(index);
+					this.lfuFreq.remove(index);
+					this.keyCounter -= 1;
+					this.cache.remove(key);
 
-				status = StatusType.DELETE_SUCCESS;
-				logger.info("Deleting key-value pair from cache: Key :: " + key + ", Value :: " + val.toString() + "\n");
-				break;
-				default:
-				logger.error("Replacement Strategy error: Please ensure proper replacement strategy value");
+					status = StatusType.DELETE_SUCCESS;
+					logger.info("Deleting key-value pair from cache: Key :: " + key + ", Value :: " + val.toString() + "\n");
+					break;
+					case None:
+					// no cache
+					break;
+					default:
+					logger.error("Replacement Strategy error: Please ensure proper replacement strategy value");
+				}
 			}
 		} else {
 			// Write to the cache first
