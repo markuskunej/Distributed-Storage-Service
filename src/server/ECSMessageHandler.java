@@ -215,7 +215,10 @@ public class ECSMessageHandler implements Runnable {
 		} else if (msg.getStatus() == StatusType.SHUTDOWN_SERVER_SUCCESS) {
 			// now it's safe to delete all data + files
 			//logger.info("before delete data");
-			kvServer.deleteDataFile();
+			// delete data only if it's not the last server
+			if (msg.getValue().equals("not_last_server")) {
+				kvServer.deleteDataFile();
+			}
 			//logger.info("after delete data");
 			isOpen = false;
 			shutdownLatch.countDown();

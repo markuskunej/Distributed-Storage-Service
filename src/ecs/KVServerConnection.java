@@ -271,8 +271,12 @@ public class KVServerConnection implements Runnable {
 			// update all kvservers meta data
 			ecsServer.updateMetaDatas();
 
+			String isLast = "not_last_server";
+			if (ecsServer.getMetaData().size() == 0) {
+				 isLast = "last_server";
+			}
 			// let the shutting server know it's safe to shutdown
-			sendMessage(new ECSMessage("Shutdown Successful", StatusType.SHUTDOWN_SERVER_SUCCESS));
+			sendMessage(new ECSMessage(isLast, StatusType.SHUTDOWN_SERVER_SUCCESS));
 			isOpen = false;
 		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO_REQUEST_ERROR) {
 			logger.error("TRANSFER_TO_REQUEST_ERROR, unable to shutdown!");
