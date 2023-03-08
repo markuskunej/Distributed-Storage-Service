@@ -91,7 +91,7 @@ public class ECSMessage implements Serializable, IECSMessage {
 	}
 
 	private void setECS(String msg) {
-		System.out.println("msg is " + msg);
+		//System.out.println("msg is " + msg);
 		String[] splitted = msg.split("~");
 		this.value = splitted[0].trim();
 		if (splitted.length > 1) {

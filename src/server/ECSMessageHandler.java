@@ -183,14 +183,15 @@ public class ECSMessageHandler implements Runnable {
 			kvServer.setWriteLock(true);
 			String successorServer = msg.getValue();
 			String kv_pairs = kvServer.getKvsToTransfer(successorServer);
-			logger.info("KV_PAIRS IS " + kv_pairs);
+			//logger.info("KV_PAIRS IS " + kv_pairs);
 			if (kv_pairs == null || kv_pairs.length() == 0) {
 				logger.info("No KV pairs to transfer");
 				sendMessageToECS(new ECSMessage(kv_pairs, StatusType.TRANSFER_TO_REQUEST_SUCCESS));
 			} else {
 				logger.info("At least 1 KV pair needs to be transferred, connect to successor server");
 				kvServer.startSuccessorHandler(successorServer, kv_pairs);
-				kvServer.sendServerMessage(new KVMessage(kv_pairs, null, shared.messages.IKVMessage.StatusType.TRANSFER_TO));
+				Thread.sleep(50); // wait for handler input/output streams to open
+				kvServer.sendServerMessage(new KVMessage(kv_pairs, "", shared.messages.IKVMessage.StatusType.TRANSFER_TO));
 			}
 		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO_REQUEST) {
 			String successorServer = msg.getValue();
@@ -201,20 +202,21 @@ public class ECSMessageHandler implements Runnable {
 			} else {
 				logger.info("At least 1 KV pair needs to be transferred, connect to successor server");
 				kvServer.startSuccessorHandler(successorServer, kv_pairs);
-				logger.info("after start successhor handler in ecs message handler");
-				kvServer.sendServerMessage(new KVMessage(kv_pairs, null, shared.messages.IKVMessage.StatusType.TRANSFER_ALL_TO));
+				Thread.sleep(50); // wait for handler input/output streams to open
+				//logger.info("after start successhor handler in ecs message handler");
+				kvServer.sendServerMessage(new KVMessage(kv_pairs, "", shared.messages.IKVMessage.StatusType.TRANSFER_ALL_TO));
 			}
 
 		} else if (msg.getStatus() == StatusType.SAFE_TO_DELETE) {
 			// now it's safe to delete kv pairs that were transferred
-			logger.info("before deleteKvPairs");
+			//logger.info("before deleteKvPairs");
 			kvServer.deleteKvPairs(msg.getValue());
 
 		} else if (msg.getStatus() == StatusType.SHUTDOWN_SERVER_SUCCESS) {
 			// now it's safe to delete all data + files
-			logger.info("before delete data");
+			//logger.info("before delete data");
 			kvServer.deleteDataFile();
-			logger.info("after delete data");
+			//logger.info("after delete data");
 			isOpen = false;
 			shutdownLatch.countDown();
 		} else if (msg.getStatus() == StatusType.SHUTDOWN_SERVER_ERROR) {
@@ -240,7 +242,7 @@ public class ECSMessageHandler implements Runnable {
 		// wait for final 
 		while (isOpen) {
 			try {
-				logger.info("waiting in shutdown");
+				//logger.info("waiting in shutdown");
 				shutdownLatch.await();
 				//ECSMessage latestECSMsg = receiveMessageFromECS();
 				//handleECSMessage(latestECSMsg);

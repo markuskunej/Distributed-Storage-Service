@@ -224,7 +224,7 @@ public class KVClientConnection implements Runnable {
 			}
 		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO) {
 			try {
-				logger.info("kv's to add are " + msg.getKey());
+				//logger.info("kv's to add are " + msg.getKey());
 				kvServer.insertKvPairs(msg.getKey());
 
 				returnStatus = StatusType.TRANSFER_ALL_TO_SUCCESS;		

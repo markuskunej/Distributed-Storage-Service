@@ -108,9 +108,9 @@ public class ECSClient extends Thread implements IECSClient {
     //     connectionMap.put(server_name, conn);
     // }
     public void removeFromConnections(String key) {
-        logger.info("removing " + key + " from connectionsMap.");
+        //logger.info("removing " + key + " from connectionsMap.");
         connectionMap.remove(key);
-        logger.info("New Connection Map is: " + connectionMap.toString());
+        //logger.info("New Connection Map is: " + connectionMap.toString());
     }
 
     public void updateConnectionMap(String oldKey, String newKey) {
@@ -119,13 +119,13 @@ public class ECSClient extends Thread implements IECSClient {
             logger.error("ERROR! Cannot update the connection map because the old key had no connection value");
         } else {
             connectionMap.put(newKey, conn);
-            logger.info("New Connection Map is: " + connectionMap.toString());
+            //logger.info("New Connection Map is: " + connectionMap.toString());
         }
     }
 
     public void addToMetaData(String server_ip_port) {
         String hash_value = hash(server_ip_port);
-        logger.info("hash is " + hash_value);
+        //logger.info("hash is " + hash_value);
         this.metadata.put(hash_value, server_ip_port);
         logger.info("Added " + server_ip_port + " to metadata.");
     }
@@ -189,10 +189,10 @@ public class ECSClient extends Thread implements IECSClient {
                     //socketMap.put(serverName, kvServer);
 					KVServerConnection connection = new KVServerConnection(kvServer, this, tempName);
 					//String serverName = kvServer.getInetAddress().getHostAddress() + ":" + kvServer.getLocalPort();
-                    logger.info("temp name is " + tempName);
+                    //logger.info("temp name is " + tempName);
                     //addToMetaData(serverName);
                     connectionMap.put(connection.getServerName(), connection);	
-                    logger.info("New Connection Map is: " + connectionMap.toString());				
+                    //logger.info("New Connection Map is: " + connectionMap.toString());				
 
                     new Thread(connection).start();
                     //connectionMap.put(connection.getServerName(), connection);	
@@ -213,15 +213,15 @@ public class ECSClient extends Thread implements IECSClient {
 
     // send a message to the server that will be transferring data to another server
     public void invokeTransferTo(String srcServer, String destServer) {
-        logger.info("srcServer is " + srcServer);
-        logger.info("connectioMap is " + connectionMap.toString());
+        //logger.info("srcServer is " + srcServer);
+        //logger.info("connectioMap is " + connectionMap.toString());
         KVServerConnection connection = connectionMap.get(srcServer);
         //Socket successorSocket = socketMap.get(srcServer);
-        logger.info("invokeTransferTo before if " + connection);
+        //logger.info("invokeTransferTo before if " + connection);
 
         if (connection != null) {
             try {
-                logger.info("invokeTransferTo");
+                logger.info("Invoking transfer of KV pairs between servers...");
                 connection.sendMessage(new ECSMessage(destServer, StatusType.TRANSFER_TO_REQUEST));
             } catch (IOException ioe) {
                 logger.error("Error! Unable to send TRANSFER_TO_REQUEST message to successor server");

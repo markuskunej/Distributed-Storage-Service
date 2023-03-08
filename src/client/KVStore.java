@@ -153,8 +153,8 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 	public void sendMessage(KVMessage msg) throws IOException {
 		//byte[] msgBytes = SerializationUtils.serialize(msg);
 		byte[] msgBytes = msg.getMsgBytes();
-		logger.debug("msgBytes = null is " + (msgBytes == null));
-		logger.debug("output = null is " + (output == null));
+		//logger.debug("msgBytes = null is " + (msgBytes == null));
+		//logger.debug("output = null is " + (output == null));
 		output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
 		logger.info("Send message:\t '" + msg.getMsg() + "'");
@@ -234,7 +234,7 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 	@Override
 	public KVMessage get(String key) throws Exception {		
 		KVMessage msg = new KVMessage(key.trim(), "", StatusType.GET);
-		logger.debug("msg is " + msg.getMsg());
+		//logger.debug("msg is " + msg.getMsg());
 		sendMessage(msg);
 
 		return msg;

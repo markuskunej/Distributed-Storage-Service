@@ -245,10 +245,10 @@ public class KVServer extends Thread implements IKVServer {
 					//this means the key's hash is lower then all the servers, the responsible server would then be the largest hash
 					resp_server_entry = metadata.lastEntry();
 				}
-				logger.info("resp_server_entry is " + resp_server_entry + " vs " + serverHash);
-				logger.info("== " + (serverHash == resp_server_entry.getKey()));
-				logger.info("equals  " + (serverHash.equals(resp_server_entry.getKey())));
-				logger.info("equals with trim " + (serverHash.trim().equals(resp_server_entry.getKey().trim())));
+				// logger.info("resp_server_entry is " + resp_server_entry + " vs " + serverHash);
+				// logger.info("== " + (serverHash == resp_server_entry.getKey()));
+				// logger.info("equals  " + (serverHash.equals(resp_server_entry.getKey())));
+				// logger.info("equals with trim " + (serverHash.trim().equals(resp_server_entry.getKey().trim())));
 
 				// see if hashes match
 				return (serverHash.equals(resp_server_entry.getKey()));
@@ -362,6 +362,9 @@ public class KVServer extends Thread implements IKVServer {
 					this.lfuFreq.add(0, 1);
 					this.cache.setProperty(key, value);
 					break;
+					case None:
+					// No cache
+					break;
 					default:
 					logger.error("Replacement Strategy error: Please ensure proper replacement strategy value");
 				}
@@ -387,6 +390,9 @@ public class KVServer extends Thread implements IKVServer {
 					this.keySet.add(0, key);
 					this.lfuFreq.add(0, 1);
 					this.cache.setProperty(key, value);
+					break;
+					case None:
+					// No cache
 					break;
 					default:
 					logger.error("Replacement Strategy error: Please ensure proper replacement strategy value");
@@ -471,6 +477,9 @@ public class KVServer extends Thread implements IKVServer {
 					this.cache.setProperty(key, value);
 				}
 				break;
+				case None:
+				// None
+				break;
 				default:
 				logger.error("Replacement Strategy error: Please ensure proper replacement strategy value");
 			}
@@ -525,6 +534,8 @@ public class KVServer extends Thread implements IKVServer {
 					this.lfuFreq.add(0, 1);
 					this.cache.setProperty(key, value);
 				}
+				break;
+				case None:
 				break;
 				default:
 				logger.error("Replacement Strategy error: Please ensure proper replacement strategy value");
@@ -591,9 +602,9 @@ public class KVServer extends Thread implements IKVServer {
 	}
 
 	public void sendServerMessage(KVMessage msg) {
-		logger.info("in send Server Message");
+		//logger.info("in send Server Message");
 		if (serverMsgHandler != null) {
-			logger.info("in send Server Message, handler not null");
+			//logger.info("in send Server Message, handler not null");
 			try {
 				serverMsgHandler.sendMessage(msg);
 			} catch (IOException ioe) {
@@ -605,7 +616,7 @@ public class KVServer extends Thread implements IKVServer {
 	public String getKvsToTransfer(String successorServer) {
 		StringBuilder kv_pairs = new StringBuilder();
 		
-		logger.info("successor server is " + successorServer);
+		//logger.info("successor server is " + successorServer);
 
 		String successorHash = hash(successorServer);
 		// transfer
@@ -728,6 +739,7 @@ public class KVServer extends Thread implements IKVServer {
 				putKV(key, null);
 			}
 		} catch (Exception e) {
+			e.printStackTrace();
 			logger.error("Error in KVServer.deleteKvPairs");
 		}
 	}

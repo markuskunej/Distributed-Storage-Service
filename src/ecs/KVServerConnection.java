@@ -197,7 +197,7 @@ public class KVServerConnection implements Runnable {
 		if (msg.getStatus() == StatusType.NEW_SERVER) {
 			try {
 				String server_name = msg.getValue();
-				logger.info("old servername is " + serverName);
+				//logger.info("old servername is " + serverName);
 				// update the connection map to point to the servers local hosting port
 				ecsServer.updateConnectionMap(serverName, server_name);
 				this.serverName = server_name;
@@ -206,7 +206,7 @@ public class KVServerConnection implements Runnable {
 				sendMessage(metadata_update);
 
 				String successorName = ecsServer.getSuccesorServer(server_name);
-				logger.info("Successor is " + successorName);
+				//logger.info("Successor is " + successorName);
 				if (successorName != null) {
 					// get the ecs server to send a message to the successor server to transfer kv's to new server
 					ecsServer.invokeTransferTo(successorName, server_name);
@@ -227,7 +227,7 @@ public class KVServerConnection implements Runnable {
 			}
 		} else if (msg.getStatus() == StatusType.SHUTDOWN_SERVER) {
 			String successorName = ecsServer.getSuccesorServer(serverName);
-			logger.info("Successor is " + successorName);
+			//logger.info("Successor is " + successorName);
 			ecsServer.removeFromMetaData(msg.getValue());
 			ecsServer.removeFromConnections(msg.getValue());
 			if (successorName != null) {
@@ -235,6 +235,7 @@ public class KVServerConnection implements Runnable {
 				ecsServer.updateMetaData(successorName);
 				// invoke transfer of all data from shutting down server to successor server
 				sendMessage(new ECSMessage(successorName, StatusType.TRANSFER_ALL_TO_REQUEST));
+				Thread.sleep(50);
 				// sendMessage(new ECSMessage(successorName));
 				// if (successorName != null) {
 				// 	// get the ecs server to send a message to the successor server to transfer kv's to new server
@@ -254,7 +255,7 @@ public class KVServerConnection implements Runnable {
 			ecsServer.updateMetaDatas();
 			String kv_pairs_transferred = msg.getValue();
 			// check if any pairs were actually transferred
-			logger.info("kv_pairs_transferred is "+kv_pairs_transferred);
+			//logger.info("kv_pairs_transferred is "+kv_pairs_transferred);
 			if (kv_pairs_transferred == null || kv_pairs_transferred.trim().isEmpty()) {
 				logger.info("No KV Pairs need to be transferred.");
 			} else {
@@ -265,7 +266,7 @@ public class KVServerConnection implements Runnable {
 		} else if (msg.getStatus() == StatusType.TRANSFER_TO_REQUEST_ERROR) {
 			logger.error("TRANSFER_TO_REQUEST_ERROR");
 		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO_REQUEST_SUCCESS) {
-			logger.info("Successfuly transferred allthe kv pairs between servers");
+			logger.info("Successfuly transferred all the kv pairs between servers");
 
 			// update all kvservers meta data
 			ecsServer.updateMetaDatas();
