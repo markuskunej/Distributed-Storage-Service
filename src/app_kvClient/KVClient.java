@@ -303,7 +303,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
                     logger.error("Error when retrying the the command to the responsible server!");
                 }
             } else if (status == StatusType.KEYRANGE_SUCCESS) {
-                System.out.println(msg.getValue());
+                System.out.println("keyrange_success " + msg.getValue());
             } else if (status == StatusType.PUT_SUCCESS) {
                 System.out.println("PUT SUCCESS");
             } else if (status == StatusType.PUT_UPDATE) {
