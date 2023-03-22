@@ -82,7 +82,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
             if (kvStore != null && kvStore.isRunning()) {
                 if (tokens.length == 3) {
                     try {
-                        connectToResponsibleServer(tokens[1]);
+                        connectToResponsibleServer(tokens[1], true);
                         kvStore.put(tokens[1], tokens[2]);
                     } catch (Exception e) {
                         printError("Unable to send message!");
@@ -90,7 +90,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
                     }
                 } else if (tokens.length == 2) {
                     try {
-                        connectToResponsibleServer(tokens[1]);
+                        connectToResponsibleServer(tokens[1], true);
                         kvStore.put(tokens[1], null); // delete operation
                     } catch (Exception e) {
                         printError("Unable to send message!");
@@ -107,7 +107,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
             if (kvStore != null && kvStore.isRunning()) {
                 if (tokens.length == 2) {
                     try {
-                        connectToResponsibleServer(tokens[1]);
+                        connectToResponsibleServer(tokens[1], false);
                         kvStore.get(tokens[1]);
                     } catch (Exception e) {
 
@@ -238,8 +238,8 @@ public class KVClient implements IKVClient, ClientSocketListener {
         }
     }
 
-    private void connectToResponsibleServer(String key) {
-        String respServer = kvStore.getResponsible(key);
+    private void connectToResponsibleServer(String key, boolean isWrite) {
+        String respServer = kvStore.getResponsible(key, isWrite);
         if (!respServer.equals(serverAddress + ":" + serverPort)) {
             disconnect();
             String[] respServer_split = respServer.split(":");
@@ -297,7 +297,11 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 kvStore.setMetaData(msg.getValueAsMetadata());
             } else if (status == StatusType.PUT || status == StatusType.GET) {
                 try {
-                    connectToResponsibleServer(msg.getKey());
+                    if (status == StatusType.PUT) {
+                        connectToResponsibleServer(msg.getKey(), true);
+                    } else {
+                        connectToResponsibleServer(msg.getKey(), false);
+                    }
                     retryOperation(msg);
                 } catch (Exception e) {
                     logger.error("Error when retrying the the command to the responsible server!");
@@ -318,6 +322,9 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 System.out.println("DELETE SUCCESS");
             } else if (status == StatusType.DELETE_ERROR) {
                 System.out.println("DELETE ERROR");
+            } else {
+                // some other message
+                break;
             }
             System.out.print(PROMPT);
         }

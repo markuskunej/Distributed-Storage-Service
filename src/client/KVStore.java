@@ -260,25 +260,28 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		sendMessage(msg);
 	}
 	
-	public String getResponsible(String key) {
+	public getResponsible(String key, boolean isWrite) {
+		String resp_server;
+		if (isWrite) {
+			resp_server = getCoordinator(key);
+		} else {
+			resp_server = getReadResponsible(key);
+		}
+	}
+
+	private String getCoordinator(String key) {
 		try {
 			if (metaData != null) {
 				String hash = DigestUtils.md5Hex(key);
 				// Note: EntrySet() returns a set of the same elements already present in the hash map
-				Map.Entry<String, String> server = metaData.floorEntry(hash);
+				Map.Entry<String, String> server = metaData.ceilingEntry(hash);
 				if (server == null) {
-					server = metaData.lastEntry();
+					server = metaData.firstEntry();
 				}
 
 				String serverValue = server.getValue();
 
 				return serverValue;
-				// String parts[] = serverValue.split(":");
-				// String metaAddress = parts[0];
-				// String metaPort = parts[1];
-
-				// this.address = metaAddress;
-				// this.port = Integer.parseInt(metaPort);
 
 			} else {
 				logger.error("Recent metadata could not be retreived");
@@ -287,6 +290,60 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		} catch (Exception e) {
 			logger.error("Responsible server" + e);
 			return "";
+		}
+	}
+
+	// randomly choose one of the (up to) 3 servers responsible for the given key (Read requests only)
+	private String getReadResponsible(String key) {
+		try {
+			if (metaData != null) {
+				String[] server_array = new String[3];
+				int idx = 0;
+				String hash = DigestUtils.md5Hex(key);
+				// Note: EntrySet() returns a set of the same elements already present in the hash map
+				Map.Entry<String, String> coordinator = metaData.ceilingEntry(hash);
+				if (coordinator == null) {
+					coordinator = metaData.firstEntry();
+				}
+				server_array[idx] = coordinator.getValue();
+				idx++;
+
+				if (metaData.size() > 1) {
+					Map.Entry<String, String> replica_1_entry = getNextServer(coordinator.getKey())
+					server_array[idx] = replica_1_entry.getValue();
+					idx++;
+					if (metaData.size() > 2) {
+						Map.Entry<String, String> replica_2_entry = getNextServer(replica_1_entry.getKey())
+						server_array[idx] = replica_2_entry.getValue();
+						idx++;
+					}
+				}
+
+				// randomly choose one of the responsible servers
+				int randomIdx = new Random().nextInt(idx);
+
+				return server_array[randomIdx];
+
+			} else {
+				logger.error("Recent metadata could not be retreived");
+				return "";
+			}
+		} catch (Exception e) {
+			logger.error("Responsible server" + e);
+			return "";
+		}
+	}
+
+	private Map.Entry<String, String> getNextServer(String server_key) {
+		if (metaData != null && metaData.size() > 1) {
+			Map.Entry<String, String> next_server = metaData.higherEntry(server_key);
+			if (next_server == null) {
+				next_server = metaData.firstEntry();
+			}
+			return next_server;
+		} else {
+			// metadata null or only 1 server in it, so there is no "next server"
+			return null;
 		}
 	}
 

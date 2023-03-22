@@ -235,23 +235,26 @@ public class KVServer extends Thread implements IKVServer {
 		return exists;
 	}
 
-	public boolean isResponsible (String key) {
+	public boolean isResponsible (String key, boolean isWrite) {
+		if (isWrite) {
+			return isWriteResponsible(key);
+		} else {
+			return isReadResponsible(key);
+		}
+	}
+
+	public boolean isWriteResponsible (String key) {
 		try {
 			if (metadata != null) {
 				String hash = DigestUtils.md5Hex(key);
-				Map.Entry<String, String> resp_server_entry = metadata.floorEntry(hash);
+				Map.Entry<String, String> coordinator_entry = metadata.ceilingEntry(hash);
 				
-				if (resp_server_entry == null) {
+				if (coordinator_entry == null) {
 					//this means the key's hash is lower then all the servers, the responsible server would then be the largest hash
-					resp_server_entry = metadata.lastEntry();
+					coordinator_entry = metadata.firstEntry();
 				}
-				// logger.info("resp_server_entry is " + resp_server_entry + " vs " + serverHash);
-				// logger.info("== " + (serverHash == resp_server_entry.getKey()));
-				// logger.info("equals  " + (serverHash.equals(resp_server_entry.getKey())));
-				// logger.info("equals with trim " + (serverHash.trim().equals(resp_server_entry.getKey().trim())));
-
 				// see if hashes match
-				return (serverHash.equals(resp_server_entry.getKey()));
+				return (serverHash.equals(coordinator_entry.getKey()));
 
 			} else {
 				logger.error("Server doesn't have metadata");
@@ -259,9 +262,64 @@ public class KVServer extends Thread implements IKVServer {
 				return false;
 			}
 		} catch (Exception e) {
-			logger.error("Error in isResponsible");
+			logger.error("Error in isWriteResponsible");
 			System.exit(1);
 			return false;
+		}
+	}
+
+	public boolean isReadResponsible (String key) {
+		try {
+			if (metadata != null) {
+				String hash = DigestUtils.md5Hex(key);
+				Map.Entry<String, String> coordinator_entry = metadata.ceilingEntry(hash);
+				if (coordinator_entry == null) {
+					//this means the key's hash is lower then all the servers, the responsible server would then be the largest hash
+					coordinator_entry = metadata.firstEntry();
+				}
+				if (serverHash.equals(coordinator_entry.getKey())) {
+					return true;
+				}
+
+				if (metadata.size() > 1) {
+					Map.Entry<String, String> replica_1_entry = getNextServer(coordinator_entry.getKey());
+					if (replica_1_entry != null) {
+						if (serverHash.equals(replica_1_entry.getKey())) {
+							return true;
+						}
+						if (metadata.size() > 2) {
+							Map.Entry<String, String> replica_2_entry = getNextServer(replica_1_entry.getKey());
+							if (replica_2_entry != null && serverHash.equals(replica_2_entry.getKey())) {
+								return true;
+							}
+						}
+					}
+				}
+
+				return false;
+
+			} else {
+				logger.error("Server doesn't have metadata");
+				System.exit(1);
+				return false;
+			}
+		} catch (Exception e) {
+			logger.error("Error in isReadResponsible");
+			System.exit(1);
+			return false;
+		}
+	}
+
+	private Map.Entry<String, String> getNextServer(String server_key) {
+		if (metadata != null && metadata.size() > 1) {
+			Map.Entry<String, String> next_server = metaData.higherEntry(server_key);
+			if (next_server == null) {
+				next_server = metaData.firstEntry();
+			}
+			return next_server;
+		} else {
+			// metadata null or only 1 server in it, so there is no "next server"
+			return null;
 		}
 	}
 
