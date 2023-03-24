@@ -291,14 +291,17 @@ public class KVClient implements IKVClient, ClientSocketListener {
         if (!stop) {
             StatusType status = msg.getStatus();
             if (status == StatusType.STRING) {
-                System.out.println(msg.getKey());
+                //System.out.println(msg.getKey());
+                return;
             } else if (status == StatusType.METADATA) {
                 //logger.debug("new metadata is " + msg.getValueAsMetadata().toString());
                 kvStore.setMetaData(msg.getValueAsMetadata());
+                return;
             } else if (status == StatusType.PUT || status == StatusType.GET) {
                 try {
                     connectToResponsibleServer(msg.getKey());
                     retryOperation(msg);
+                    return;
                 } catch (Exception e) {
                     logger.error("Error when retrying the the command to the responsible server!");
                 }
