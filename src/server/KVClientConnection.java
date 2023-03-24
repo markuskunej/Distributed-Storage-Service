@@ -186,9 +186,12 @@ public class KVClientConnection implements Runnable {
 		String returnValue = msg.getValue();
 		StatusType returnStatus = msg.getStatus();
 		if (msg.getStatus() == StatusType.PUT) {
-			if (kvServer.isResponsible(msg.getKey())) {
+			if (kvServer.isResponsible(msg.getKey(), true)) {
 				try {
 					returnStatus = kvServer.putKV(msg.getKey(), msg.getValue());
+					if (returnStatus != StatusType.PUT_ERROR) {
+						kvServer.putReplicas(msg.getKey(), msg.getValue());
+					}
 				} catch (Exception e) {
 					logger.error("Error trying putKV");
 					returnStatus = StatusType.PUT_ERROR;
@@ -196,8 +199,15 @@ public class KVClientConnection implements Runnable {
 			} else {
 				returnStatus = StatusType.SERVER_NOT_RESPONSIBLE;
 			}
+		} else if (msg.getStatus() == StatusType.PUT_REPLICATE) {
+			try {
+				returnStatus = kvServer.putKV(msg.getKey(), msg.getValue());
+			} catch (Exception e) {
+				logger.error("Error trying putKV");
+				returnStatus = StatusType.PUT_ERROR;
+			}
 		} else if (msg.getStatus() == StatusType.GET) {
-			if (kvServer.isResponsible(msg.getKey())) {
+			if (kvServer.isResponsible(msg.getKey(), false)) {
 				try {
 					returnValue = kvServer.getKV(msg.getKey());
 					if (returnValue != null) {
@@ -238,7 +248,15 @@ public class KVClientConnection implements Runnable {
 				returnStatus = StatusType.KEYRANGE_SUCCESS;
 			} catch (Exception e) {
 				logger.error("Error in getKeyrange");
-				returnStatus = StatusType.KEYRANGE_SUCCESS;
+				returnStatus = StatusType.KEYRANGE_ERROR;
+			}
+		} else if (msg.getStatus() == StatusType.KEYRANGE_READ) {
+			try {
+				returnValue = kvServer.getKeyrangeRead();
+				returnStatus = StatusType.KEYRANGE_READ_SUCCESS;
+			} catch (Exception e) {
+				logger.error("Error in getKeyrangeRead");
+				returnStatus = StatusType.KEYRANGE_READ_ERROR;
 			}
 		}
 

@@ -37,6 +37,7 @@ public class KVServerConnection implements Runnable {
 	private InputStream input;
 	private OutputStream output;
 	private ECSClient ecsServer;
+	private int emptyReceived = 0; // used to track empty messages
 
 	/**
 	 * Constructs a new KVServerConnection object for a given TCP socket.
@@ -205,12 +206,14 @@ public class KVServerConnection implements Runnable {
 				ECSMessage metadata_update = new ECSMessage(ecsServer.getMetaData(), StatusType.METADATA);
 				sendMessage(metadata_update);
 
-				String successorName = ecsServer.getSuccesorServer(server_name);
-				//logger.info("Successor is " + successorName);
-				if (successorName != null) {
-					// get the ecs server to send a message to the successor server to transfer kv's to new server
-					ecsServer.invokeTransferTo(successorName, server_name);
-				}
+				// perform new server transfers
+				ecsServer.newServerTransfers(server_name);
+				// String successorName = ecsServer.getSuccesorServer(server_name);
+				// //logger.info("Successor is " + successorName);
+				// if (successorName != null) {
+				// 	// get the ecs server to send a message to the successor server to transfer kv's to new server
+				// 	ecsServer.invokeTransferTo(successorName, server_name);
+				// }
 
 				sendMessage(new ECSMessage("", StatusType.NEW_SERVER_SUCCESS));
 				//TreeMap<String, String> metadata = ecsServer.getMetaData();
@@ -230,23 +233,35 @@ public class KVServerConnection implements Runnable {
 			//logger.info("Successor is " + successorName);
 			ecsServer.removeFromMetaData(msg.getValue());
 			ecsServer.removeFromConnections(msg.getValue());
-			if (successorName != null) {
-				// send metadata update to successor server
-				ecsServer.updateMetaData(successorName);
-				// invoke transfer of all data from shutting down server to successor server
-				sendMessage(new ECSMessage(successorName, StatusType.TRANSFER_ALL_TO_REQUEST));
-				Thread.sleep(50);
-				// sendMessage(new ECSMessage(successorName));
-				// if (successorName != null) {
-				// 	// get the ecs server to send a message to the successor server to transfer kv's to new server
-				// 	ecsServer.invokeTransferAllTo(serverName, successorName);
-				// }
-			} else {
-				logger.info("No other servers are running, proceed with shutdown");
-				// let the shutting server know it's safe to shutdown
-				sendMessage(new ECSMessage("Server Shutdown", StatusType.SHUTDOWN_SERVER_SUCCESS));
-				isOpen = false;
+			ecsServer.removeServerTransfer(serverName);
+
+			String isLast = "not_last_server";
+			if (ecsServer.getMetaData().size() == 0) {
+				 isLast = "last_server";
 			}
+			// let the shutting server know it's safe to shutdown
+			sendMessage(new ECSMessage(isLast, StatusType.SHUTDOWN_SERVER_SUCCESS));
+
+			// update all kvservers meta data
+			ecsServer.updateMetaDatas();
+			isOpen = false;
+			// if (successorName != null) {
+			// 	// send metadata update to successor server
+			// 	ecsServer.updateMetaData(successorName);
+			// 	// invoke transfer of all data from shutting down server to successor server
+			// 	sendMessage(new ECSMessage(successorName, StatusType.TRANSFER_ALL_TO_REQUEST));
+			// 	Thread.sleep(50);
+			// 	// sendMessage(new ECSMessage(successorName));
+			// 	// if (successorName != null) {
+			// 	// 	// get the ecs server to send a message to the successor server to transfer kv's to new server
+			// 	// 	ecsServer.invokeTransferAllTo(serverName, successorName);
+			// 	// }
+			// } else {
+			// 	logger.info("No other servers are running, proceed with shutdown");
+			// 	// let the shutting server know it's safe to shutdown
+			// 	sendMessage(new ECSMessage("Server Shutdown", StatusType.SHUTDOWN_SERVER_SUCCESS));
+			// 	isOpen = false;
+			// }
 
 		} else if (msg.getStatus() == StatusType.TRANSFER_TO_REQUEST_SUCCESS) {
 			//logger.info("Successfuly transferred the kv pairs between servers");
@@ -271,15 +286,29 @@ public class KVServerConnection implements Runnable {
 			// update all kvservers meta data
 			ecsServer.updateMetaDatas();
 
-			String isLast = "not_last_server";
-			if (ecsServer.getMetaData().size() == 0) {
-				 isLast = "last_server";
-			}
-			// let the shutting server know it's safe to shutdown
-			sendMessage(new ECSMessage(isLast, StatusType.SHUTDOWN_SERVER_SUCCESS));
-			isOpen = false;
+			// String isLast = "not_last_server";
+			// if (ecsServer.getMetaData().size() == 0) {
+			// 	 isLast = "last_server";
+			// }
+			// // let the shutting server know it's safe to shutdown
+			// sendMessage(new ECSMessage(isLast, StatusType.SHUTDOWN_SERVER_SUCCESS));
+			// isOpen = false;
 		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO_REQUEST_ERROR) {
-			logger.error("TRANSFER_TO_REQUEST_ERROR, unable to shutdown!");
+			logger.error("TRANSFER_TO_REQUEST_ERROR");
+		} else {
+			// unknown received message, could be killed connection
+			emptyReceived++;
+
+			if (emptyReceived == 2) {
+				// 2 empty messages, assume killed
+				ecsServer.removeFromMetaData(serverName);
+				ecsServer.removeFromConnections(serverName);
+				ecsServer.removeServerTransfer(serverName);
+				// update all kvservers meta data
+				ecsServer.updateMetaDatas();				
+				logger.error("Server " + serverName + " was killed, closing the connection");
+				isOpen = false;
+			}
 		}
 
 	}

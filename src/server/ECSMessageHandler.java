@@ -81,6 +81,7 @@ public class ECSMessageHandler implements Runnable {
 		} finally {
 			try {
 				if (ecsSocket != null) {
+					logger.info("IN FINALLY");
 					input.close();
 					output.close();
 					ecsSocket.close();
@@ -181,15 +182,17 @@ public class ECSMessageHandler implements Runnable {
 			}
 		} else if (msg.getStatus() == StatusType.TRANSFER_TO_REQUEST) {
 			kvServer.setWriteLock(true);
-			String successorServer = msg.getValue();
+			String[] servers = msg.getValue().split(",");
+			String successorServer = servers[0];
+			String destServer = servers[1];
 			String kv_pairs = kvServer.getKvsToTransfer(successorServer);
 			//logger.info("KV_PAIRS IS " + kv_pairs);
 			if (kv_pairs == null || kv_pairs.length() == 0) {
 				logger.info("No KV pairs to transfer");
 				sendMessageToECS(new ECSMessage(kv_pairs, StatusType.TRANSFER_TO_REQUEST_SUCCESS));
 			} else {
-				logger.info("At least 1 KV pair needs to be transferred, connect to successor server");
-				kvServer.startSuccessorHandler(successorServer, kv_pairs);
+				logger.info("At least 1 KV pair needs to be transferred, connect to destination server");
+				kvServer.startSuccessorHandler(destServer);
 				Thread.sleep(50); // wait for handler input/output streams to open
 				kvServer.sendServerMessage(new KVMessage(kv_pairs, "", shared.messages.IKVMessage.StatusType.TRANSFER_TO));
 			}
@@ -201,7 +204,7 @@ public class ECSMessageHandler implements Runnable {
 				sendMessageToECS(new ECSMessage("No KV Pairs needed to be transferred!", StatusType.TRANSFER_ALL_TO_REQUEST_SUCCESS));
 			} else {
 				logger.info("At least 1 KV pair needs to be transferred, connect to successor server");
-				kvServer.startSuccessorHandler(successorServer, kv_pairs);
+				kvServer.startSuccessorHandler(successorServer);
 				Thread.sleep(50); // wait for handler input/output streams to open
 				//logger.info("after start successhor handler in ecs message handler");
 				kvServer.sendServerMessage(new KVMessage(kv_pairs, "", shared.messages.IKVMessage.StatusType.TRANSFER_ALL_TO));
@@ -220,7 +223,7 @@ public class ECSMessageHandler implements Runnable {
 				kvServer.deleteDataFile();
 			}
 			//logger.info("after delete data");
-			isOpen = false;
+			this.isOpen = false;
 			shutdownLatch.countDown();
 		} else if (msg.getStatus() == StatusType.SHUTDOWN_SERVER_ERROR) {
 			logger.error("SHUTDOWN_SERVER_ERROR");
@@ -261,15 +264,16 @@ public class ECSMessageHandler implements Runnable {
 				isOpen = false;
 			}
 		}
-
-		try {
-			if (ecsSocket != null) {
-				input.close();
-				output.close();
-				ecsSocket.close();
-			}
-		} catch (IOException ioe) {
-			logger.error("Error! Unable to tear down connection with ECS!", ioe);
-		}
+		// logger.info("AFTER SHUTDOWN HOOK LATCH");
+		// try {
+		// 	if (ecsSocket != null) {
+		// 		logger.info("IN INPUT CLOSERS");
+		// 		input.close();
+		// 		output.close();
+		// 		ecsSocket.close();
+		// 	}
+		// } catch (IOException ioe) {
+		// 	logger.error("Error! Unable to tear down connection with ECS!", ioe);
+		// }
 	}
 }

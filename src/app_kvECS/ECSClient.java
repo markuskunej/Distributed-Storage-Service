@@ -131,13 +131,15 @@ public class ECSClient extends Thread implements IECSClient {
     }
 
     public void updateMetaDatas() {
-        ECSMessage metadata_msg = new ECSMessage(metadata, StatusType.METADATA);
-        for (Map.Entry<String, KVServerConnection> conn_entry : connectionMap.entrySet()) {
-            try {
-                conn_entry.getValue().sendMessage(metadata_msg);
-                //sendMessage(sock_entry.getValue(), metadata_msg);
-            } catch (IOException ioe) {
-                logger.error("Error! Unable to send metadata update to server: " + conn_entry.getKey());
+        if (metadata.size() != 0) {
+            ECSMessage metadata_msg = new ECSMessage(metadata, StatusType.METADATA);
+            for (Map.Entry<String, KVServerConnection> conn_entry : connectionMap.entrySet()) {
+                try {
+                    conn_entry.getValue().sendMessage(metadata_msg);
+                    //sendMessage(sock_entry.getValue(), metadata_msg);
+                } catch (IOException ioe) {
+                    logger.error("Error! Unable to send metadata update to server: " + conn_entry.getKey());
+                }
             }
         }
     }
@@ -151,9 +153,23 @@ public class ECSClient extends Thread implements IECSClient {
             // only server connected to ECS, no successor
             return null;
         }
+        String serverAfter = metadata.higherKey(hash(newServer));
+        if (serverAfter == null) {
+            //this new server has the highest value in hash ring, successor is the server with lowest hash key
+            return metadata.get(metadata.firstKey());
+        } else {
+            return metadata.get(serverAfter);
+        }
+    }
+
+    public String getPredecessorServer(String newServer) {
+        if (metadata.size() == 1) {
+            // only server connected to ECS, no successor
+            return null;
+        }
         String serverBefore = metadata.lowerKey(hash(newServer));
         if (serverBefore == null) {
-            //this new server has the lowest value in hash ring, successor is the server with largest hash key
+            //this new server has the lowest value in hash ring, successor is the server with lowest hash key
             return metadata.get(metadata.lastKey());
         } else {
             return metadata.get(serverBefore);
@@ -212,19 +228,116 @@ public class ECSClient extends Thread implements IECSClient {
 	}
 
     // send a message to the server that will be transferring data to another server
-    public void invokeTransferTo(String srcServer, String destServer) {
+    public void invokeTransferTo(String srcServer, String destServer, String coordinatorServer) {
         //logger.info("srcServer is " + srcServer);
         //logger.info("connectioMap is " + connectionMap.toString());
         KVServerConnection connection = connectionMap.get(srcServer);
         //Socket successorSocket = socketMap.get(srcServer);
         //logger.info("invokeTransferTo before if " + connection);
-
+        String servers = coordinatorServer + ',' + destServer;
         if (connection != null) {
             try {
                 logger.info("Invoking transfer of KV pairs between servers...");
-                connection.sendMessage(new ECSMessage(destServer, StatusType.TRANSFER_TO_REQUEST));
+                connection.sendMessage(new ECSMessage(servers, StatusType.TRANSFER_TO_REQUEST));
             } catch (IOException ioe) {
                 logger.error("Error! Unable to send TRANSFER_TO_REQUEST message to successor server");
+            }
+        }
+    }
+
+    public void invokeTransferAllTo(String srcServer, String destServer) {
+        KVServerConnection connection = connectionMap.get(srcServer);
+        if (connection != null) {
+            try {
+                logger.info("Invoking transfer of all KV pairs between servers...");
+                connection.sendMessage(new ECSMessage(destServer, StatusType.TRANSFER_ALL_TO_REQUEST));
+            } catch (IOException ioe) {
+                logger.error("Error! Unable to send TRANSFER_ALL_TO_REQUEST message to successor server");
+            }
+        }
+    }
+
+    public void newServerTransfers(String new_server_name) {
+        try {
+            logger.info("connectionMap size is " + connectionMap.size());
+            if (connectionMap.size() == 1) {
+                // first server, no need for transfer
+                return;
+            } else if (connectionMap.size() <= 3) {
+                // special case where where each server should have all the same data
+                // since it'll be a replica of the other 2 + its own coordinator items
+                String successorName = getSuccesorServer(new_server_name);
+                KVServerConnection connection = connectionMap.get(successorName);
+                connection.sendMessage(new ECSMessage(new_server_name, StatusType.TRANSFER_ALL_TO_REQUEST));
+            } else {
+                // more than 3 connections active, requires a re-shuffling of data
+                // get next 3 successors
+                String[] successors = new String[3];
+                successors[0] = getSuccesorServer(new_server_name);
+                successors[1] = getSuccesorServer(successors[0]);
+                successors[2] = getSuccesorServer(successors[1]);
+
+                // get 2 predecessors (+ new server). Note the reverse filling of the array
+                String[] predecessors = new String[3];
+                predecessors[2] = new_server_name;
+                predecessors[1] = getPredecessorServer(new_server_name);
+                predecessors[0] = getPredecessorServer(predecessors[1]);
+
+                // each of the successors no longer replicates one of the predecessors,
+                // transfer those replicated items to the new server
+                for (int i=0; i < 3; i++) {
+                    invokeTransferTo(successors[i], new_server_name, predecessors[i]);
+                }
+            }
+        } catch (IOException ioe) {
+            logger.error("ERROR in newServerTransfer.\n", ioe);
+        }
+    }
+
+    public void removeServerTransfer(String removed_server) {
+        if (connectionMap.size() < 3) {
+            // special case where where each server should have all the same data
+            // since it'll be a replica of the other 2 + its own coordinator items
+            logger.info("IN REMOVE SERVER TRANSFER");
+            logger.info(connectionMap.size());
+        } else if (connectionMap.size() == 3) {
+            // special case where all servers should have same data
+            // similar as case after, but use TRANSFER_ALL instead of TRANSFER_TO
+            // since it won't delete the kv pairs afterwards
+            String[] successors = new String[3];
+            successors[0] = getSuccesorServer(removed_server);
+            successors[1] = getSuccesorServer(successors[0]);
+            successors[2] = getSuccesorServer(successors[1]);
+
+            // get 2 predecessors (+ succesor). Note the reverse filling of the array
+            String[] predecessors = new String[3];
+            predecessors[2] = successors[0];
+            predecessors[1] = getPredecessorServer(removed_server);
+            predecessors[0] = getPredecessorServer(predecessors[1]);
+
+            // transfer all
+            for (int i=0; i < 3; i++) {
+                invokeTransferAllTo(predecessors[i], successors[i]);
+            }
+
+        } else {
+            // more than 3 connections active, requires a re-shuffling of data
+            // get next 3 successors
+            String[] successors = new String[3];
+            successors[0] = getSuccesorServer(removed_server);
+            successors[1] = getSuccesorServer(successors[0]);
+            successors[2] = getSuccesorServer(successors[1]);
+
+            // get 2 predecessors (+ succesor). Note the reverse filling of the array
+            String[] predecessors = new String[3];
+            predecessors[2] = successors[0];
+            predecessors[1] = getPredecessorServer(removed_server);
+            predecessors[0] = getPredecessorServer(predecessors[1]);
+
+            // each of the successors no longer replicates one of the predecessors,
+            // transfer those replicated items to the new server
+            for (int i=0; i < 3; i++) {
+                invokeTransferTo(predecessors[i], successors[i], successors[i]);
             }
         }
     }

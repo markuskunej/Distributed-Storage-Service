@@ -135,6 +135,20 @@ public class KVClient implements IKVClient, ClientSocketListener {
             } else {
                 printError("Not connected!");
             }
+        } else if (tokens[0].equals("keyrange_read")) {
+            if (kvStore != null && kvStore.isRunning()) {
+                if (tokens.length == 1) {
+                    try {
+                        kvStore.keyrangeRead();
+                    } catch (Exception e) {
+                        disconnect();
+                    }
+                } else {
+                    printError("Incorrect format: expecting keyrange_read");
+                }
+            } else {
+                printError("Not connected!");
+            }
         } else if (tokens[0].equals("disconnect")) {
             disconnect();
 
@@ -291,23 +305,30 @@ public class KVClient implements IKVClient, ClientSocketListener {
         if (!stop) {
             StatusType status = msg.getStatus();
             if (status == StatusType.STRING) {
-                System.out.println(msg.getKey());
+                if (!msg.getKey().isEmpty()) {
+                    System.out.println(msg.getKey());
+                }
             } else if (status == StatusType.METADATA) {
                 //logger.debug("new metadata is " + msg.getValueAsMetadata().toString());
                 kvStore.setMetaData(msg.getValueAsMetadata());
+                return;
             } else if (status == StatusType.PUT || status == StatusType.GET) {
                 try {
+                    // kvStore.serverNotResponsible(msg);
                     if (status == StatusType.PUT) {
                         connectToResponsibleServer(msg.getKey(), true);
                     } else {
                         connectToResponsibleServer(msg.getKey(), false);
                     }
                     retryOperation(msg);
+                    return;
                 } catch (Exception e) {
                     logger.error("Error when retrying the the command to the responsible server!");
                 }
             } else if (status == StatusType.KEYRANGE_SUCCESS) {
-                System.out.println("keyrange_success " + msg.getValue());
+                System.out.println("KEYRANGE_SUCCESS " + msg.getValue());
+            } else if (status == StatusType.KEYRANGE_READ_SUCCESS) {
+                System.out.println("KEYRANGE_READ_SUCCESS " + msg.getValue());
             } else if (status == StatusType.PUT_SUCCESS) {
                 System.out.println("PUT SUCCESS");
             } else if (status == StatusType.PUT_UPDATE) {
@@ -324,7 +345,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 System.out.println("DELETE ERROR");
             } else {
                 // some other message
-                break;
+                return;
             }
             System.out.print(PROMPT);
         }

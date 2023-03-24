@@ -159,21 +159,54 @@ public class KVServer extends Thread implements IKVServer {
 		return resultHexString;
 	}
 
+	public String md5AddOne(String hash) {
+		BigInteger decimalBigInt = new BigInteger(hash, 16); // Parse hex string as a BigInteger
+		decimalBigInt = decimalBigInt.add(BigInteger.ONE); // add 1 from the BigInteger
+		String resultHexString = decimalBigInt.toString(16); // Convert the result back to a hex string
+		while (resultHexString.length() < 32) {
+			resultHexString = "0" + resultHexString; // Pad result with leading zeros if necessary
+		}
+		return resultHexString;
+	}
+
 	public String getKeyrange() {
 		StringBuilder keyrange_str = new StringBuilder();
-		// String firstServerStart = metadata.firstKey();
-		// String firstServerName = metadata.get(firstServerStart);
-		// String lastServerEndHash = md5SubtractOne(firstServerStart)
-		// boolean onFirst
 		for (String serverHash : metadata.keySet()) {
-			String startHash = serverHash;
-			String endHash = metadata.higherKey(startHash);
-			if (endHash == null) {
+			String startHash = metadata.lowerKey(serverHash);
+			if (startHash == null) {
 				// at the last server in hash ring, make end hash one less than first hash
-				endHash = metadata.firstKey();
+				startHash = metadata.lastKey();
 			}
 			String serverName = metadata.get(serverHash);
-			keyrange_str.append(startHash + "," + md5SubtractOne(endHash) + "," + serverName + ";");
+			keyrange_str.append(md5AddOne(startHash) + "," + serverHash + "," + serverName + ";");
+		}
+		keyrange_str.append("\r\n");
+
+		return keyrange_str.toString();
+	}
+
+	public String getKeyrangeRead() {
+		StringBuilder keyrange_str = new StringBuilder();
+		if (metadata.size() <= 3) {
+			// less than or 3 servers, read range is entire ring starting at their hash
+			for (String serverHash : metadata.keySet()) {
+				String serverName = metadata.get(serverHash);
+				keyrange_str.append(md5AddOne(serverHash) + "," + serverHash + "," + serverName + ";");
+			}
+		} else {
+			for (String serverHash : metadata.keySet()) {
+				String currentHash = serverHash;
+				//get the 3rd predecessor
+				for (int i = 0; i < 3; i++) {
+					currentHash = metadata.lowerKey(currentHash);
+					if (currentHash == null) {
+						// at the last server in hash ring, make end hash one less than first hash
+						currentHash = metadata.lastKey();
+					}
+				}
+				String serverName = metadata.get(serverHash);
+				keyrange_str.append(md5AddOne(currentHash) + "," + serverHash + "," + serverName + ";");
+			}
 		}
 		keyrange_str.append("\r\n");
 
@@ -312,9 +345,9 @@ public class KVServer extends Thread implements IKVServer {
 
 	private Map.Entry<String, String> getNextServer(String server_key) {
 		if (metadata != null && metadata.size() > 1) {
-			Map.Entry<String, String> next_server = metaData.higherEntry(server_key);
+			Map.Entry<String, String> next_server = metadata.higherEntry(server_key);
 			if (next_server == null) {
-				next_server = metaData.firstEntry();
+				next_server = metadata.firstEntry();
 			}
 			return next_server;
 		} else {
@@ -467,7 +500,7 @@ public class KVServer extends Thread implements IKVServer {
 	}
 
 	@Override
-	public StatusType putKV(String key, String value) throws Exception {
+	public synchronized StatusType putKV(String key, String value) throws Exception {
 		// check if value is null - delete operation
 		if (value == null || value == "") {
 			// check if value is in cache
@@ -693,7 +726,10 @@ public class KVServer extends Thread implements IKVServer {
 		}
 	}
 
-	public void startSuccessorHandler(String successorServer, String kv_pairs) {
+	public void startSuccessorHandler(String successorServer) {
+		// close existing connection
+		closeServerConnection();
+
 		//connect to other kvserver
 		String[] server_split = successorServer.split(":");
 		try {
@@ -702,7 +738,7 @@ public class KVServer extends Thread implements IKVServer {
 			logger.error("Error! Unable to connect to successor server.");
 		}		
 		// start the handler for the successor server
-		this.serverMsgHandler = new ServerMessageHandler(successorServerSocket, this, kv_pairs);
+		this.serverMsgHandler = new ServerMessageHandler(successorServerSocket, this);
 		new Thread(serverMsgHandler).start();
 	}
 
@@ -717,6 +753,35 @@ public class KVServer extends Thread implements IKVServer {
             }
 		}
 	}
+
+	public void closeServerConnection() {
+		if (serverMsgHandler != null) {
+			logger.info("Closing connection to other KVServer");
+			serverMsgHandler.closeConnection();
+			serverMsgHandler = null;
+		}
+	}
+
+	public void putReplicas(String key, String value) {
+		try {
+			// get replicas and make the same put command to them
+			Map.Entry<String, String> replica_1_entry = getNextServer(serverHash);
+			if (replica_1_entry != null) {
+				startSuccessorHandler(replica_1_entry.getValue());
+				Thread.sleep(50);
+				sendServerMessage(new KVMessage(key, value, StatusType.PUT_REPLICATE));
+				if (metadata.size() > 2) {
+					Map.Entry<String, String> replica_2_entry = getNextServer(replica_1_entry.getKey());
+					startSuccessorHandler(replica_2_entry.getValue());
+					Thread.sleep(50);
+					sendServerMessage(new KVMessage(key, value, StatusType.PUT_REPLICATE));
+				}
+			}
+		} catch (InterruptedException ioe) {
+			logger.error("ERROR, in putReplicas. \n", ioe);
+		}
+	}
+
 
 	public String getKvsToTransfer(String successorServer) {
 		StringBuilder kv_pairs = new StringBuilder();
@@ -766,10 +831,10 @@ public class KVServer extends Thread implements IKVServer {
 		TreeSet<String> serverHashes = new TreeSet<>();
 		serverHashes.add(successorHash);
 		serverHashes.add(serverHash);
-		String responsibleHash = serverHashes.floor(keyHash);
+		String responsibleHash = serverHashes.ceiling(keyHash);
 		if (responsibleHash == null) {
 			// both servers have higher hashes, closest going left is the higher of the two
-			responsibleHash = serverHashes.last();
+			responsibleHash = serverHashes.first();
 		}
 		return responsibleHash.equals(successorHash);
 	}

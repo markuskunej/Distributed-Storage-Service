@@ -11,6 +11,7 @@ import java.net.Socket;
 import java.net.UnknownHostException;
 import java.util.HashSet;
 import java.util.HashMap;
+import java.util.Random;
 import java.util.Set;
 
 import java.util.Map;
@@ -101,6 +102,14 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		logger.info("Connection established");
 	}
 
+	private void changeConnection(String addr, int port) throws Exception {
+		this.address = addr;
+		this.port = port;
+		kvStoreSocket = new Socket(address, port);
+		setRunning(true);
+		logger.info("Connection established");
+	}
+
 	@Override
 	public void disconnect() {
 		logger.info("try to close connection ...");
@@ -118,8 +127,8 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		setRunning(false);
 		logger.info("tearing down the connection ...");
 		if (kvStoreSocket != null) {
-			//input.close();
-			//output.close();
+			input.close();
+			output.close();
 			kvStoreSocket.close();
 			kvStoreSocket = null;
 			logger.info("connection closed!");
@@ -259,14 +268,20 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		KVMessage msg = new KVMessage("1", "1", StatusType.KEYRANGE);
 		sendMessage(msg);
 	}
+
+	public void keyrangeRead() throws Exception {
+		KVMessage msg = new KVMessage("1", "1", StatusType.KEYRANGE_READ);
+		sendMessage(msg);
+	}
 	
-	public getResponsible(String key, boolean isWrite) {
+	public String getResponsible(String key, boolean isWrite) {
 		String resp_server;
 		if (isWrite) {
 			resp_server = getCoordinator(key);
 		} else {
 			resp_server = getReadResponsible(key);
 		}
+		return resp_server;
 	}
 
 	private String getCoordinator(String key) {
@@ -309,11 +324,11 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 				idx++;
 
 				if (metaData.size() > 1) {
-					Map.Entry<String, String> replica_1_entry = getNextServer(coordinator.getKey())
+					Map.Entry<String, String> replica_1_entry = getNextServer(coordinator.getKey());
 					server_array[idx] = replica_1_entry.getValue();
 					idx++;
 					if (metaData.size() > 2) {
-						Map.Entry<String, String> replica_2_entry = getNextServer(replica_1_entry.getKey())
+						Map.Entry<String, String> replica_2_entry = getNextServer(replica_1_entry.getKey());
 						server_array[idx] = replica_2_entry.getValue();
 						idx++;
 					}
@@ -347,20 +362,42 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		}
 	}
 
-	public void retryOperation(KVMessage msg) throws Exception {
-		// disconnect from current server
-		disconnect();
-		// find responsible server according to metadata and set address and port to it
-		getResponsible(msg.getKey());
-		// connect to new server
-		try {
-			connect();
-		} catch (Exception e) {
-			logger.error("Unable to connect to responsible server according to metadata, trying other servers until connected.");
-			connectOnLoss();
-		}
-		sendMessage(msg);
-	}
+	// public void serverNotResponsible (KVMessage msg) {
+	// 	// disconnect from current server
+	// 	tearDownConnection();
+	// 	// get responsible server
+	// 	if (msg.getStatus() == StatusType.GET) {
+	// 		String respServer = getResponsible(msg.getKey(), false);
+	// 	} else if (msg.getStatus() == StatusType.PUT) {
+	// 		String respServer = getResponsible(msg.getKey(), true);
+	// 	}
+	// 	// connect to it
+	// 	String[] server_arr = respServer.split(":");
+	// 	changeConnection(server_arr[0], Integer.parseInt(server_arr[1]));
+	// 	while (!areStreamsOpen()) {
+	// 		Thread.sleep(50);
+	// 	}
+	// 	//retry operation
+	// 	if (msg.getStatus() == StatusType.GET) {
+	// 		get(msg.getKey());
+	// 	} else if (msg.getStatus() == StatusType.PUT) {
+	// 		put(msg.getKey(), msg.getValue());
+	// 	}
+	// }
+	// public void retryOperation(KVMessage msg) throws Exception {
+	// 	// disconnect from current server
+	// 	disconnect();
+	// 	// find responsible server according to metadata and set address and port to it
+	// 	getResponsible(msg.getKey());
+	// 	// connect to new server
+	// 	try {
+	// 		connect();
+	// 	} catch (Exception e) {
+	// 		logger.error("Unable to connect to responsible server according to metadata, trying other servers until connected.");
+	// 		connectOnLoss();
+	// 	}
+	// 	sendMessage(msg);
+	// }
 
 	private void connectOnLoss() {
 		// If a connection is lost, try to reconnect with appropriate metadata

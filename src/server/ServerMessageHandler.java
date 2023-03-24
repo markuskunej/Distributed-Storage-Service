@@ -26,7 +26,6 @@ public class ServerMessageHandler implements Runnable {
 	private InputStream input;
 	private OutputStream output;
 	private KVServer kvServer;
-	private String pairs_to_transfer;
 
 
     /**
@@ -34,11 +33,10 @@ public class ServerMessageHandler implements Runnable {
 	 * 
 	 * @param successorSocket the Socket object for the kvServer connection.
 	 */
-	public ServerMessageHandler(Socket successorSocket, KVServer kvServer, String pairs_to_transfer) {
+	public ServerMessageHandler(Socket successorSocket, KVServer kvServer) {
 		this.successorSocket = successorSocket;
 		this.isOpen = true;
 		this.kvServer = kvServer;
-		this.pairs_to_transfer = pairs_to_transfer;
 	}
 
     public void run() {
@@ -71,6 +69,7 @@ public class ServerMessageHandler implements Runnable {
 		} finally {
 			try {
 				if (successorSocket != null) {
+					logger.info("TRYING TO CLOSE KVSERVER");
 					input.close();
 					output.close();
 					successorSocket.close();
@@ -80,6 +79,10 @@ public class ServerMessageHandler implements Runnable {
 			}
 		}
     }
+
+	public void closeConnection() {
+		this.isOpen = false;
+	}
 
     public void sendMessage(KVMessage msg) throws IOException {
 		//byte[] msgBytes = SerializationUtils.serialize(msg);
@@ -157,24 +160,27 @@ public class ServerMessageHandler implements Runnable {
 			logger.info("Closing connection with successor KVServer.");
 			kvServer.sendEcsMessage(new ECSMessage(msg.getKey(), IECSMessage.StatusType.TRANSFER_TO_REQUEST_SUCCESS));
 			// close successor server connection
-			isOpen = false;
+			closeConnection();
 		} else if (msg.getStatus() == StatusType.TRANSFER_TO_ERROR) {
 			logger.info("TRANSFER_TO_ERROR");
 			logger.info("Closing connection with successor KVServer.");
 			kvServer.sendEcsMessage(new ECSMessage("ERROR! Unable to transfer kv_pairs between servers.", IECSMessage.StatusType.TRANSFER_TO_REQUEST_ERROR));
-			isOpen = false;
+			closeConnection();
 		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO_SUCCESS) {
 			logger.info("Successfully transferred all KV Pairs from the server to be shut down");
 			logger.info("Closing connection with successor KVServer.");
 			kvServer.sendEcsMessage(new ECSMessage("Successfully transferred all kv pairs from server.", IECSMessage.StatusType.TRANSFER_ALL_TO_REQUEST_SUCCESS));
-			isOpen = false;
+			closeConnection();
 		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO_ERROR) {
 			logger.info("TRANSFER_ALL_TO_ERROR");
 			logger.info("Closing connection with successor KVServer.");
 			kvServer.sendEcsMessage(new ECSMessage("ERROR! Unable to transfer all kv_pairs between servers.", IECSMessage.StatusType.TRANSFER_ALL_TO_REQUEST_ERROR));
-			isOpen = false;
-		} else if (msg.getStatus() == StatusType.STRING) {
-			//logger.info(msg.getKey());
+			closeConnection();
+		} else if (msg.getStatus() == StatusType.STRING || msg.getStatus() == StatusType.METADATA) {
+			//ignore these
+		} else {
+			logger.info(msg.getStatus() + " with other KVServer, close the connection");
+			closeConnection();
 		}
 	}
 }

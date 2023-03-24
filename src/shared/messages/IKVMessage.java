@@ -7,6 +7,7 @@ public interface IKVMessage {
 		GET_ERROR, /* requested tuple (i.e. value) not found */
 		GET_SUCCESS, /* requested tuple (i.e. value) found */
 		PUT, /* Put - request */
+		PUT_REPLICATE, /* Replicated put request from the coordinator */
 		PUT_SUCCESS, /* Put - request successful, tuple inserted */
 		PUT_UPDATE, /* Put - request successful, i.e. value updated */
 		PUT_ERROR, /* Put - request not successful */
@@ -15,6 +16,9 @@ public interface IKVMessage {
 		KEYRANGE,
 		KEYRANGE_SUCCESS,
 		KEYRANGE_ERROR,
+		KEYRANGE_READ,
+		KEYRANGE_READ_SUCCESS,
+		KEYRANGE_READ_ERROR,
 		STRING, /* pass text using the key param */
 		INITIAL,
 		METADATA,
