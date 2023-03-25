@@ -249,10 +249,9 @@ public class KVClientConnection implements Runnable {
 				logger.error("Error in getKeyrange");
 				returnStatus = StatusType.KEYRANGE_SUCCESS;
 			}
-		} else if (msg == null) {
+		} else if (msg.getMsg() == null ||  msg.getMsg().equals("")) {
 			logger.error("Empty Message");
 			isOpen = false;
-
 		}
 
 		if (returnStatus == StatusType.SERVER_NOT_RESPONSIBLE) {

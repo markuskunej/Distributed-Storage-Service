@@ -2,6 +2,7 @@ package shared.messages;
 
 import java.io.Serializable;
 import java.util.TreeMap;
+import org.apache.log4j.*;
 
 public class KVMessage implements Serializable, IKVMessage {
 	private static final long serialVersionUID = 5549512212003782618L;
@@ -10,6 +11,8 @@ public class KVMessage implements Serializable, IKVMessage {
 	private String value;
 	private String msg;
 	private byte[] msgBytes;
+	private static Logger logger = Logger.getRootLogger();
+
 
 	private static final char LINE_FEED = 0x0A;
 	private static final char RETURN = 0x0D;
@@ -83,7 +86,7 @@ public class KVMessage implements Serializable, IKVMessage {
 	 * @return the content of this message in String format.
 	 */
 	public String getMsg() {
-		return msg.trim();
+		return msg.trim().replace("~", " ");
 	}
 
 	/**
@@ -97,15 +100,27 @@ public class KVMessage implements Serializable, IKVMessage {
 	}
 
 	private void setKV(String msg) {
+		logger.error("msg is " + msg);
 		String[] splitted = msg.split("~");
-		if (splitted.length == 2) {
-			this.key = splitted[0].trim();
+		logger.error("splitted length is " + splitted.length);
+		logger.error(splitted[0] == null);
+		logger.error(splitted[0].equals(""));
+		if (splitted.length == 1 && !splitted[0].equals("")) {
+			this.status = StatusType.valueOf(splitted[0].trim());
+			this.key = null;
+			this.value = null;
+		} else if (splitted.length == 2) {
+			this.key = splitted[1].trim();
 			this.value = "";
-			this.status = StatusType.valueOf(splitted[1].trim());
+			this.status = StatusType.valueOf(splitted[0].trim());
 		} else if (splitted.length == 3) {
-			this.key = splitted[0].trim();
-			this.value = splitted[1].trim();
-			this.status = StatusType.valueOf(splitted[2].trim());
+			this.key = splitted[1].trim();
+			this.value = splitted[2].trim();
+			this.status = StatusType.valueOf(splitted[0].trim());
+		} else {
+			this.key = null;
+			this.value = null;
+			this.status = null;
 		}
 	}
 
@@ -154,14 +169,14 @@ public class KVMessage implements Serializable, IKVMessage {
 
 	private String buildMsg() {
 		StringBuilder strBuilder = new StringBuilder();
+		if (status != null) {
+			strBuilder.append(status.name() + "~");
+		}
 		if (key != null) {
 			strBuilder.append(key.trim() + "~");
 		}
 		if ((value != null) && (value != "")) {
-			strBuilder.append(value.trim() + "~");
-		}
-		if (status != null) {
-			strBuilder.append(status.name());
+			strBuilder.append(value.trim());
 		}
 
 		return strBuilder.toString();
