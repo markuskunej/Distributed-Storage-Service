@@ -56,7 +56,11 @@ public class KVMessage implements Serializable, IKVMessage {
 
 	@Override
 	public String getKey() {
-		return key.trim();
+		if (key != null) {
+			return key.trim();
+		} else {
+			return null;
+		}
 	}
 
 	@Override
