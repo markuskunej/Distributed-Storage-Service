@@ -249,6 +249,7 @@ public class KVClientConnection implements Runnable {
 			// retry same message
 			return msg;
 		} else {
+			logger.error("msg is " + msg.getMsg());
 			return new KVMessage(msg.getKey(), returnValue, returnStatus);
 		}
 	}
