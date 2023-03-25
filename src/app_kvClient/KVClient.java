@@ -306,7 +306,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
                     logger.error("Error when retrying the the command to the responsible server!");
                 }
             } else if (status == StatusType.KEYRANGE_SUCCESS) {
-                System.out.println("keyrange_success " + msg.getValue());
+                System.out.println("KEYRANGE_SUCCESS " + msg.getValue());
             } else if (status == StatusType.PUT_SUCCESS) {
                 System.out.println("PUT SUCCESS");
             } else if (status == StatusType.PUT_UPDATE) {
@@ -321,6 +321,8 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 System.out.println("DELETE SUCCESS");
             } else if (status == StatusType.DELETE_ERROR) {
                 System.out.println("DELETE ERROR");
+            } else {
+                return;
             }
             System.out.print(PROMPT);
         }

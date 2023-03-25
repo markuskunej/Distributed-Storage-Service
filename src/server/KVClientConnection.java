@@ -74,10 +74,10 @@ public class KVClientConnection implements Runnable {
 					 * network problems
 					 */
 				} catch (IOException ioe) {
-					logger.error("Error! Connection lost!");
+					logger.error("Error! Connection lost!", ioe);
 					isOpen = false;
 				} catch (Exception e) {
-					logger.error("Error! Connection lost!");
+					logger.error("Error! Connection lost!", e);
 					isOpen = false;
 				}
 			}
