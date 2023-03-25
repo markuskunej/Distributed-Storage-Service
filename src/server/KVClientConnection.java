@@ -185,7 +185,16 @@ public class KVClientConnection implements Runnable {
 	private KVMessage handleMessage(KVMessage msg) throws Exception {
 		String returnValue = msg.getValue();
 		StatusType returnStatus = msg.getStatus();
-		if (msg.getStatus() == StatusType.PUT) {
+		if (msg.getMsg().trim().equals("keyrange")) {
+			try {
+				returnValue = kvServer.getKeyrange();
+				returnStatus = StatusType.KEYRANGE_SUCCESS;
+			} catch (Exception e) {
+				logger.error("Error in getKeyrange");
+				returnStatus = StatusType.KEYRANGE_SUCCESS;
+			}
+		}
+		else if (msg.getStatus() == StatusType.PUT) {
 			if (kvServer.isResponsible(msg.getKey())) {
 				try {
 					returnStatus = kvServer.putKV(msg.getKey(), msg.getValue());
@@ -240,6 +249,10 @@ public class KVClientConnection implements Runnable {
 				logger.error("Error in getKeyrange");
 				returnStatus = StatusType.KEYRANGE_SUCCESS;
 			}
+		} else if (msg == null) {
+			logger.error("Empty Message");
+			isOpen = false;
+
 		}
 
 		if (returnStatus == StatusType.SERVER_NOT_RESPONSIBLE) {
@@ -249,7 +262,6 @@ public class KVClientConnection implements Runnable {
 			// retry same message
 			return msg;
 		} else {
-			logger.error("msg is " + msg.getMsg());
 			return new KVMessage(msg.getKey(), returnValue, returnStatus);
 		}
 	}

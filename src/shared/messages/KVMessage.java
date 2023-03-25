@@ -159,9 +159,10 @@ public class KVMessage implements Serializable, IKVMessage {
 		}
 		if ((value != null) && (value != "")) {
 			strBuilder.append(value.trim() + "~");
-			return key.trim() + "~" + value.trim() + "~" + status.name();
 		}
-		strBuilder.append(status.name());
+		if (status != null) {
+			strBuilder.append(status.name());
+		}
 
 		return strBuilder.toString();
 	}
