@@ -106,17 +106,17 @@ public class KVMessage implements Serializable, IKVMessage {
 		logger.error(splitted[0] == null);
 		logger.error(splitted[0].equals(""));
 		if (splitted.length == 1 && !splitted[0].equals("")) {
-			this.status = StatusType.valueOf(splitted[0].trim());
+			this.status = StatusType.valueOf(splitted[0].trim().toUpperCase());
 			this.key = null;
 			this.value = null;
 		} else if (splitted.length == 2) {
 			this.key = splitted[1].trim();
 			this.value = "";
-			this.status = StatusType.valueOf(splitted[0].trim());
+			this.status = StatusType.valueOf(splitted[0].trim().toUpperCase());
 		} else if (splitted.length == 3) {
 			this.key = splitted[1].trim();
 			this.value = splitted[2].trim();
-			this.status = StatusType.valueOf(splitted[0].trim());
+			this.status = StatusType.valueOf(splitted[0].trim().toUpperCase());
 		} else {
 			this.key = null;
 			this.value = null;
