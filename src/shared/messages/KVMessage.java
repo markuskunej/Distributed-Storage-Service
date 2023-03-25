@@ -101,7 +101,7 @@ public class KVMessage implements Serializable, IKVMessage {
 
 	private void setKV(String msg) {
 		logger.error("msg is " + msg);
-		String[] splitted = msg.split("~");
+		String[] splitted = msg.split(" ");
 		logger.error("splitted length is " + splitted.length);
 		logger.error(splitted[0] == null);
 		logger.error(splitted[0].equals(""));
@@ -170,10 +170,10 @@ public class KVMessage implements Serializable, IKVMessage {
 	private String buildMsg() {
 		StringBuilder strBuilder = new StringBuilder();
 		if (status != null) {
-			strBuilder.append(status.name() + "~");
+			strBuilder.append(status.name() + " ");
 		}
 		if (key != null) {
-			strBuilder.append(key.trim() + "~");
+			strBuilder.append(key.trim() + " ");
 		}
 		if ((value != null) && (value != "")) {
 			strBuilder.append(value.trim());
