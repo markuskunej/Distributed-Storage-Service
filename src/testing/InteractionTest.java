@@ -3,6 +3,7 @@ package testing;
 import org.junit.Test;
 
 import app_kvServer.KVServer;
+import app_kvServer.IKVServer.CacheStrategy;
 import client.KVStore;
 import junit.framework.TestCase;
 import shared.messages.KVMessage;
@@ -15,7 +16,7 @@ public class InteractionTest extends TestCase {
 	private KVServer kvServer;
 	
 	public void setUp() {
-		kvServer = new KVServer("localhost:7551", "localhost", 7552, 1, null);
+		kvServer = new KVServer("localhost:7551", "localhost", 7552, 1, null, null);
 		kvClient = new KVStore("localhost", 7552);
 		try {
 			kvServer.start();

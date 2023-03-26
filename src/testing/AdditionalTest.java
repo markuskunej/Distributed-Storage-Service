@@ -1,16 +1,31 @@
 package testing;
 
+import java.beans.Transient;
 import java.io.File;
 import java.util.TreeMap;
 
-import org.junit.Test;
-
 import app_kvServer.KVServer;
 import client.KVStore;
-import junit.framework.TestCase;
 import shared.messages.IKVMessage;
 import shared.messages.KVMessage;
 import shared.messages.IKVMessage.StatusType;
+
+import app_kvECS.ECSClient;
+
+import shared.messages.IECSMessage;
+import shared.messages.ECSMessage;
+
+import java.net.ServerSocket;
+import java.net.Socket;
+
+import ecs.KVServerConnection;
+
+import java.util.TreeSet;
+
+import javax.accessibility.AccessibleHypertext;
+
+import java.util.Map;
+import java.util.TreeMap;
 
 public class AdditionalTest extends TestCase {
 
@@ -26,6 +41,12 @@ public class AdditionalTest extends TestCase {
 	KVStore kvClient3;
 	KVStore kvClient4;
 	KVStore kvClient5;
+
+	private Socket testSocket;
+	private ServerSocket ECSServerSocket;
+
+	String key = "TESTKEY";
+	String val = "TESTVAL";
 
 	public void setUp() {
 		// Initially create 5 kvservers and 5 clients, connecting 1 to each server
@@ -54,38 +75,16 @@ public class AdditionalTest extends TestCase {
 			kvClient4.connect();
 			kvClient5.connect();
 
+			kvServer1.putKV(key, val);
+			kvServer2.putKV(key, val);
+			kvServer3.putKV(key, val);
+
 		} catch (Exception e) {
 		}
+
 	}
 
 	// TODO add your test cases, at least 3
-	@Test
-	public void testFileCreation() {
-		Exception ex = null;
-		boolean exists = false;		
-		try {
-			// filename for kvServer1
-			File f = new File("test_data/7552.properties");
-			exists = f.exists();
-		} catch (Exception e) {
-			ex = e;
-		}
-		assertTrue(ex == null && exists);
-	}
-
-	@Test
-	public void testComputeKeyRange() {
-		KVMessage response = null;
-		Exception ex = null;
-				
-		try {
-			//response = kvClient1.getKeyRanges();
-		} catch (Exception e) {
-			ex = e;
-		}
-		assertTrue(ex == null && response.getStatus() == StatusType.KEYRANGE_SUCCESS);
-	}
-
 	@Test
 	public void testServerHash() {
 		KVMessage response = null;
@@ -133,24 +132,6 @@ public class AdditionalTest extends TestCase {
 	}
 
 	@Test
-	public void testMetadataUpdate() {
-		TreeMap<String, String> orig_metadata = new TreeMap<String, String>();
-		TreeMap<String, String> new_metadata = new TreeMap<String, String>();
-		Exception ex = null;
-
-		try {
-			orig_metadata = kvServer2.getMetaData();
-			// remove server 1 to trigger ECS to update metadata of all servers
-			kvServer1.close();
-			new_metadata = kvServer2.getMetaData();
-		} catch (Exception e) {
-			ex = e;
-		}
-		// assert no error, the new metadata is different from the old one, and kvServer 1 is no longer in the metadata
-		assertTrue(ex == null && !orig_metadata.equals(new_metadata) && !new_metadata.containsKey(kvServer1.getName()));
-	}
-
-	@Test
 	public void testAddKVServer() {
 		Exception ex = null;
 
@@ -165,36 +146,101 @@ public class AdditionalTest extends TestCase {
 	}
 
 	@Test
-	public void testFileDeleted() {
-		boolean exists = true;
+	public void testRemoveKVServer() {
 		Exception ex = null;
 
 		try {
-			kvServer2.close();
-			// was server 2's filename
-			File f = new File("test_data/7553.properties");
-			exists = f.exists();
-		} catch (Exception e) {
+			kvServer4.close();
+		} catch(Exception e) {
 			ex = e;
 		}
-		assertTrue(ex == null && !exists);
+		// assert no error, metadata updates, etc.
+		assertTrue(ex == null);
 	}
 
 	@Test
-	public void testAddKVPairs() {
+	public void testFailureDetection() {
 		Exception ex = null;
-	
+		// KVServerConnection.emptyReceived is a private field, so we can just assume it is 2 for this test
+		
+		// Since kvserver4 was previously closed, we can treat it as our "failed" server
 		try {
-			kvClient1.put("k1", "v1");
-			kvClient1.put("k2", "v2");
-			kvClient2.put("k3", "v3");
-			kvClient2.put("k4", "v4");
-			kvClient3.put("k5", "v5");
-			kvClient3.put("k6", "v6");
-			kvClient4.put("k7", "v7");
-			kvClient4.put("k8", "v8");
-			kvClient5.put("k9", "v9");
-			kvClient5.put("k10", "v10");
+			ECSClient client;
+			testSocket = ECSServerSocket.accept();
+            
+            String tempName = Integer.toString(testSocket.getPort());
+            KVServerConnection connection = new KVServerConnection(testSocket, client, tempName);
+
+			new Thread(connection).start();
+
+		} catch (IOException e) {
+			ex = e;
+		}
+		// The server connection should have failed
+		assertTrue(ex != null);
+	}
+
+	@Test
+	public void testRecovery() {
+		// With server 4 closed, 5 and 6 should still have identical values
+		Exception ex = null;
+		Treemap meta5;
+		Treemap meta6;
+		
+		try {
+			meta5 = kvServer5.getMetaData();
+			meta6 = kvServer6.getMetaData();
+		} catch (Exception e) {
+			ex = e;
+		}
+
+		// no error occured and metadata are equal
+		assertTrue(ex == null);
+		assertTrue(meta5 == meta6);
+	}
+
+	@Test
+	public void testKeyRangeRead() {
+		// servers 1-3 constitute a coordinator and two replicas, so the complete keyRangeRead
+		// should go from the start of 1 to the end of 3
+		Exception ex;
+
+		String complete;
+		String test;
+
+		try {
+			String range1 = kvServer1.getKeyrange();
+			String range3 = kvServer3.getKeyrange();
+
+			String[] server1 = range1.split(",");
+			String start = server1[0];
+
+			String[] server3 = range3.split(",");
+			String end = server3[1];
+
+			complete = start + "," + end;
+
+			String keyrangeread = kvServer1.getKeyrangeRead();
+			String[] temp = keyrangeread.split(",");
+			test = temp[0] + "," + temp[1];
+		} catch (Exception e) {
+			ex = e;
+		}
+
+		// no errors occured and key range is complete
+		assertTrue(ex == null);
+		assertTrue(complete == test);
+	}
+
+	@Test
+	public void testCoordToReplicaConnect() {
+		// Servers 5 and 6 are a coordinator replica pair, so we test their connection
+
+		KVMessage response = null;
+		Exception ex = null;
+		
+		try {
+			kvServer5.connectToServer("localhost", 7557);
 		} catch (Exception e) {
 			ex = e;
 		}
@@ -202,15 +248,28 @@ public class AdditionalTest extends TestCase {
 	}
 
 	@Test
-	public void testRebalanceData() {
+	public void testReplica() {
+		// Testing if server x and y have the same KV pair - currently testing 1 and 2
 		Exception ex = null;
-	
+		Treemap meta1;
+		Treemap meta2;
+		
+		String val1;
+		String val2;
+
 		try {
-			// now that the servers contain data, try removing one
-			kvServer3.close();
+			meta1 = kvServer1.getMetaData();
+			meta2 = kvServer2.getMetaData();
+
+			val1 = kvServer1.getKV(key);
+			val2 = kvServer2.getKV(key);
 		} catch (Exception e) {
 			ex = e;
 		}
+
+		// no error occured and metadata and KV are equal
 		assertTrue(ex == null);
+		assertTrue(meta1 == meta2);
+		assertTrue(val1 == val2);
 	}
 }

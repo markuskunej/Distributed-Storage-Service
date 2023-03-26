@@ -27,7 +27,8 @@ public class AllTests {
 	public static Test suite() {
 		TestSuite clientSuite = new TestSuite("Basic Storage ServerTest-Suite");
 		clientSuite.addTestSuite(ConnectionTest.class);
-		clientSuite.addTestSuite(InteractionTest.class); 
+		clientSuite.addTestSuite(InteractionTest.class);
+		// potentially comment this test out 
 		clientSuite.addTestSuite(AdditionalTest.class); 
 		return clientSuite;
 	}
