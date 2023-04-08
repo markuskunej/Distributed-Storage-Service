@@ -502,7 +502,11 @@ public class KVServer extends Thread implements IKVServer {
 	@Override
 	public synchronized StatusType putKV(String key, String value) throws Exception {
 		// check if value is null - delete operation
-		if (value == null || value == "") {
+
+		// NEW - for encryption, strings cannot be empty ("")
+		// "" has been replaced with "EMPTY STRING"
+
+		if (value == null || value == "" || value == "EMPTY STRING") {
 			// check if value is in cache
 			String val = cache.getProperty(key);
 			if (val != null) {

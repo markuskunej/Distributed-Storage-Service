@@ -24,6 +24,14 @@ import org.apache.log4j.Logger;
 
 import client.ClientSocketListener.SocketStatus;
 
+// Encryption Imports
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.SecureRandom;
+import javax.crypto.Cipher;
+
 public class KVStore extends Thread implements Serializable, KVCommInterface {
 
 	private String address;
@@ -41,6 +49,11 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 	private static final int DROP_SIZE = 1024 * BUFFER_SIZE;
 	
 	private TreeMap<String, String> metaData = new TreeMap<String, String>();
+
+	// Generate public/private key
+	KeyPair clientKeyPair = KeyPairGenerator.generateKeyPair();
+	PrivateKey clientPrivateKey = clientKeyPair.getPrivate();
+	PublicKey clientPublicKey = clientKeyPair.getPublic();
 
 	/**
 	 * Initialize KVStore with address and port of KVServer
@@ -232,9 +245,37 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		return msg;
 	}
 
+	public static byte[] encrypt(String text, PublicKey publicKey) {
+		Cipher cipher = Cipher.getInstance("RSA");
+		cipher.init(Cipher.ENCRYPT_MODE, this.clientPublicKey, new SecureRandom());
+
+    	byte[] encrypted = cipher.doFinal(plaintext.getBytes());
+    	
+		return encrypted;
+	}
+
+	public static String decrypt(byte[] encryptedText, PrivateKey privateKey) {
+		Cipher cipher = Cipher.getInstance("RSA");
+    	cipher.init(Cipher.DECRYPT_MODE, this.clientPrivateKey);
+
+    	byte[] decrypted = cipher.doFinal(encryptedText);
+    	
+		return new String(decrypted);
+	}
+
 	@Override
 	public KVMessage put(String key, String value) throws Exception {
-		KVMessage msg = new KVMessage(key, value, StatusType.PUT);
+		String preEncryptedKey = key.trim()
+		byte[] encryptedKey = encrypt(preEncryptedKey, publicKey);
+
+		// encrypting an empty string ("") results in errors, so replace "" with a specific phrase
+		if value == "":
+			value = "EMPTY STRING"
+		
+		String preEncryptedValue = value;
+		byte[] encryptedValue = encrypt(preEncryptedValue, publicKey);
+		// Encrypt before sending message
+		KVMessage msg = new KVMessage(encryptedKey, encryptedValue, StatusType.PUT);
 		sendMessage(msg);
 
 		return msg;
@@ -242,7 +283,10 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 
 	@Override
 	public KVMessage get(String key) throws Exception {		
-		KVMessage msg = new KVMessage(key.trim(), "", StatusType.GET);
+		String preEncrypt = key.trim()
+		byte[] encrypted = encrypt(preEncrypt, publicKey);
+		// Encrypt before sending message
+		KVMessage msg = new KVMessage(encrypted, "", StatusType.GET);
 		//logger.debug("msg is " + msg.getMsg());
 		sendMessage(msg);
 

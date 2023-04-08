@@ -83,6 +83,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 if (tokens.length == 3) {
                     try {
                         connectToResponsibleServer(tokens[1], true);
+                        // ENCRYPT HERE
                         kvStore.put(tokens[1], tokens[2]);
                     } catch (Exception e) {
                         printError("Unable to send message!");
@@ -91,6 +92,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 } else if (tokens.length == 2) {
                     try {
                         connectToResponsibleServer(tokens[1], true);
+                        // ENCRYPT HERE
                         kvStore.put(tokens[1], null); // delete operation
                     } catch (Exception e) {
                         printError("Unable to send message!");
@@ -108,7 +110,9 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 if (tokens.length == 2) {
                     try {
                         connectToResponsibleServer(tokens[1], false);
+                        // ENCRYPT HERE
                         kvStore.get(tokens[1]);
+                        // DECRYPT HERE
                     } catch (Exception e) {
 
                         disconnect();
@@ -284,8 +288,11 @@ public class KVClient implements IKVClient, ClientSocketListener {
         try {
             // retry operations
             if (msg.getStatus() == StatusType.GET) {
+                // ENCRYPT HERE
                 kvStore.get(msg.getKey());
+                // DECRYPT HERE
             } else if (msg.getStatus() == StatusType.PUT) {
+                // ENCRYPT HERE
                 kvStore.put(msg.getKey(), msg.getValue());
             }
         } catch (UnknownHostException e) {
@@ -336,7 +343,10 @@ public class KVClient implements IKVClient, ClientSocketListener {
             } else if (status == StatusType.PUT_ERROR) {
                 System.out.println("PUT ERROR");
             } else if (status == StatusType.GET_SUCCESS) {
-                System.out.println(msg.getValue());
+                // Decrypt here before returning data
+                String decrypted = kvstore.decrypt(msg.getValue(), this.clientPrivateKey);
+                // TESTING REQUIRED
+                System.out.println(decrypted);
             } else if (status == StatusType.GET_ERROR) {
                 System.out.println("Could not find value for the given key");
             } else if (status == StatusType.DELETE_SUCCESS) {

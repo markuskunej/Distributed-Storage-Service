@@ -14,6 +14,14 @@ import org.apache.commons.lang3.SerializationUtils;
 import shared.messages.KVMessage;
 import shared.messages.IKVMessage.StatusType;
 
+// Encryption Imports
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.SecureRandom;
+import javax.crypto.Cipher;
+
 /**
  * Represents a connection end point for a particular client that is
  * connected to the server. This class is responsible for message reception
@@ -33,6 +41,11 @@ public class KVClientConnection implements Runnable {
 	private InputStream input;
 	private OutputStream output;
 	private KVServer kvServer;
+
+	// Generate public/private key
+	KeyPair serverKeyPair = KeyPairGenerator.generateKeyPair();
+	PrivateKey serverPrivateKey = serverKeyPair.getPrivate();
+	PublicKey serverPublicKey = serverKeyPair.getPublic();
 
 	/**
 	 * Constructs a new CientConnection object for a given TCP socket.
@@ -182,13 +195,36 @@ public class KVClientConnection implements Runnable {
 		return receivedMsg;
 	}
 
+	public static byte[] encrypt(String text, PublicKey publicKey) {
+		Cipher cipher = Cipher.getInstance("RSA");
+		cipher.init(Cipher.ENCRYPT_MODE, this.serverPublicKey, new SecureRandom());
+
+    	byte[] encrypted = cipher.doFinal(plaintext.getBytes());
+    	
+		return encrypted;
+	}
+
+	public static String decrypt(byte[] encryptedText, PrivateKey privateKey) {
+		Cipher cipher = Cipher.getInstance("RSA");
+    	cipher.init(Cipher.DECRYPT_MODE, this.serverPrivateKey);
+
+    	byte[] decrypted = cipher.doFinal(encryptedText);
+    	
+		return new String(decrypted);
+	}
+
 	private KVMessage handleMessage(KVMessage msg) throws Exception {
 		String returnValue = msg.getValue();
 		StatusType returnStatus = msg.getStatus();
 		if (msg.getStatus() == StatusType.PUT) {
 			if (kvServer.isResponsible(msg.getKey(), true)) {
 				try {
-					returnStatus = kvServer.putKV(msg.getKey(), msg.getValue());
+					// Decrypt key and value first, then run putKV
+					String decryptedKey = decrypt(msg.getKey(), this.serverPrivateKey);
+					String decryptedValue = decrypt(msg.getValue(), this.serverPrivateKey);
+
+					// Note that we need to re-encrypt the value returned by getKV before sending it to the client
+					returnStatus = encrypt(kvServer.putKV(decryptedKey, decryptedValue), this.serverPublicKey);
 					if (returnStatus != StatusType.PUT_ERROR) {
 						kvServer.putReplicas(msg.getKey(), msg.getValue());
 					}
@@ -201,6 +237,7 @@ public class KVClientConnection implements Runnable {
 			}
 		} else if (msg.getStatus() == StatusType.PUT_REPLICATE) {
 			try {
+				// Decrypt here too?
 				returnStatus = kvServer.putKV(msg.getKey(), msg.getValue());
 			} catch (Exception e) {
 				logger.error("Error trying putKV");
@@ -209,7 +246,10 @@ public class KVClientConnection implements Runnable {
 		} else if (msg.getStatus() == StatusType.GET) {
 			if (kvServer.isResponsible(msg.getKey(), false)) {
 				try {
-					returnValue = kvServer.getKV(msg.getKey());
+					// Decrypt key first, then run getKV
+					String decryptedKey = decrypt(msg.getKey(), this.serverPrivateKey);
+
+					returnValue = kvServer.getKV(decryptedKey);
 					if (returnValue != null) {
 						returnStatus = StatusType.GET_SUCCESS;
 					} else {
@@ -225,6 +265,7 @@ public class KVClientConnection implements Runnable {
 			}
 		} else if (msg.getStatus() == StatusType.TRANSFER_TO) {
 			try {
+				// Decrypt here too?
 				kvServer.insertKvPairs(msg.getKey());
 
 				returnStatus = StatusType.TRANSFER_TO_SUCCESS;		
@@ -234,6 +275,8 @@ public class KVClientConnection implements Runnable {
 			}
 		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO) {
 			try {
+				// Decrypt here too?
+
 				//logger.info("kv's to add are " + msg.getKey());
 				kvServer.insertKvPairs(msg.getKey());
 
@@ -267,6 +310,8 @@ public class KVClientConnection implements Runnable {
 			// retry same message
 			return msg;
 		} else {
+			// Can leave msg.getKey() and returnValue, as they will either still be encrypted versions
+			// sent to the server from the client or newly encrypted from a GET, so the client can decrypt them 
 			return new KVMessage(msg.getKey(), returnValue, returnStatus);
 		}
 	}

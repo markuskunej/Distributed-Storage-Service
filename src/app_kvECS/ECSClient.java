@@ -28,6 +28,14 @@ import logger.LogSetup;
 import shared.messages.ECSMessage;
 import shared.messages.IECSMessage.StatusType;
 
+// Encryption Imports
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.SecureRandom;
+import javax.crypto.Cipher;
+
 public class ECSClient extends Thread implements IECSClient {
 
     private static Logger logger = Logger.getRootLogger();
@@ -39,7 +47,10 @@ public class ECSClient extends Thread implements IECSClient {
     //private HashMap<String, Socket> socketMap = new HashMap<>();
     private HashMap<String, KVServerConnection> connectionMap = new HashMap<>();
 
-
+    // Generate public/private key
+	KeyPair ECSKeyPair = KeyPairGenerator.generateKeyPair();
+	PrivateKey ECSPrivateKey = ECSPair.getPrivate();
+	PublicKey ECSPublicKey = ECSKeyPair.getPublic();
 
     public ECSClient(String addr, int port) {
 		this.port = port;
