@@ -344,7 +344,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 System.out.println("PUT ERROR");
             } else if (status == StatusType.GET_SUCCESS) {
                 // Decrypt here before returning data
-                String decrypted = kvstore.decrypt(msg.getValue(), this.clientPrivateKey);
+                String decrypted = kvStore.decrypt(msg.getValue(), kvStore.getClientPrivateKey());
                 // TESTING REQUIRED
                 System.out.println(decrypted);
             } else if (status == StatusType.GET_ERROR) {
