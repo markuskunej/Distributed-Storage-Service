@@ -14,6 +14,7 @@ import org.apache.commons.lang3.SerializationUtils;
 import shared.messages.KVMessage;
 import shared.messages.IKVMessage.StatusType;
 
+import java.security.GeneralSecurityException;
 // Encryption Imports
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -42,10 +43,22 @@ public class KVClientConnection implements Runnable {
 	private OutputStream output;
 	private KVServer kvServer;
 
-	// Generate public/private key
-	KeyPair serverKeyPair = KeyPairGenerator.generateKeyPair();
-	PrivateKey serverPrivateKey = serverKeyPair.getPrivate();
-	PublicKey serverPublicKey = serverKeyPair.getPublic();
+	private static PrivateKey serverPrivateKey;
+	private static PublicKey serverPublicKey;
+
+	static {
+		// Generate public/private key
+		KeyPairGenerator kpg = null;
+		try {
+			kpg = KeyPairGenerator.getInstance("RSA/ECB/PKCS1Padding");
+		} catch (GeneralSecurityException e) {
+			throw new RuntimeException(e);
+		}	
+
+		KeyPair serverKeyPair = kpg.generateKeyPair();
+		serverPrivateKey = serverKeyPair.getPrivate();
+		serverPublicKey = serverKeyPair.getPublic();
+	}
 
 	/**
 	 * Constructs a new CientConnection object for a given TCP socket.
@@ -65,7 +78,7 @@ public class KVClientConnection implements Runnable {
 	public void run() {
 		try {
 			output = kvClientSocket.getOutputStream();
-			input = kvClientSocket.getInputStream();
+			input = kvClientSocket.getInputStream();	
 
 			sendMessage(new KVMessage(
 					"Connection to KVServer established: "
@@ -121,7 +134,11 @@ public class KVClientConnection implements Runnable {
 	public void sendMessage(KVMessage msg) throws IOException {
 		//byte[] msgBytes = SerializationUtils.serialize(msg);
 		byte[] msgBytes = msg.getMsgBytes();
-		output.write(msgBytes, 0, msgBytes.length);
+
+		// Encrypt the KVMessage bytes
+		byte[] encryptedData = encrypt(msgBytes, serverPublicKey); // clientPublicKey
+
+		output.write(encryptedData, 0, encryptedData.length); // output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
 		logger.info("SEND \t<"
 				+ kvClientSocket.getInetAddress().getHostAddress() + ":"
@@ -184,8 +201,11 @@ public class KVClientConnection implements Runnable {
 
 		msgBytes = tmp;
 
+		// Decrypt here
+		byte[] decryptedBytes = decrypt(msgBytes, serverPrivateKey); // serverPrivateKey
+
 		//KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
-		KVMessage receivedMsg = new KVMessage(msgBytes);
+		KVMessage receivedMsg = new KVMessage(decryptedBytes); // KVMessage receivedMsg = new KVMessage(msgBytes);
 
 		/* build final String */
 		logger.info("RECEIVE \t<"
@@ -195,22 +215,38 @@ public class KVClientConnection implements Runnable {
 		return receivedMsg;
 	}
 
-	public static byte[] encrypt(String text, PublicKey publicKey) {
-		Cipher cipher = Cipher.getInstance("RSA");
-		cipher.init(Cipher.ENCRYPT_MODE, this.serverPublicKey, new SecureRandom());
+	public byte[] encrypt(byte[] data, PublicKey publicKey) {
+		Cipher cipher = null;
+		byte[] encrypted;
 
-    	byte[] encrypted = cipher.doFinal(plaintext.getBytes());
+		try {
+			cipher = Cipher.getInstance("RSA");
+			cipher.init(Cipher.ENCRYPT_MODE, serverPublicKey, new SecureRandom());
+
+			encrypted = cipher.doFinal(data);
+		} catch (GeneralSecurityException e) {
+			throw new RuntimeException(e);
+			// gracceful exit
+		}
     	
 		return encrypted;
 	}
 
-	public static String decrypt(byte[] encryptedText, PrivateKey privateKey) {
-		Cipher cipher = Cipher.getInstance("RSA");
-    	cipher.init(Cipher.DECRYPT_MODE, this.serverPrivateKey);
+	public byte[] decrypt(byte[] encryptedData, PrivateKey privateKey) {
+		Cipher cipher = null;
+		byte[] decrypted;
 
-    	byte[] decrypted = cipher.doFinal(encryptedText);
+		try {
+			cipher = Cipher.getInstance("RSA");
+			cipher.init(Cipher.DECRYPT_MODE, serverPrivateKey);
+	
+			decrypted = cipher.doFinal(encryptedData);
+		} catch (GeneralSecurityException e) {
+			throw new RuntimeException(e);
+			// graceful exit
+		}
     	
-		return new String(decrypted);
+		return decrypted;
 	}
 
 	private KVMessage handleMessage(KVMessage msg) throws Exception {
@@ -220,11 +256,11 @@ public class KVClientConnection implements Runnable {
 			if (kvServer.isResponsible(msg.getKey(), true)) {
 				try {
 					// Decrypt key and value first, then run putKV
-					String decryptedKey = decrypt(msg.getKey(), this.serverPrivateKey);
-					String decryptedValue = decrypt(msg.getValue(), this.serverPrivateKey);
+					// String decryptedKey = decrypt(msg.getKey(), serverPrivateKey);
+					// String decryptedValue = decrypt(msg.getValue(), serverPrivateKey);
 
 					// Note that we need to re-encrypt the value returned by getKV before sending it to the client
-					returnStatus = encrypt(kvServer.putKV(decryptedKey, decryptedValue), this.serverPublicKey);
+					// returnStatus = encrypt(kvServer.putKV(decryptedKey, decryptedValue), this.serverPublicKey);
 					if (returnStatus != StatusType.PUT_ERROR) {
 						kvServer.putReplicas(msg.getKey(), msg.getValue());
 					}
@@ -247,9 +283,9 @@ public class KVClientConnection implements Runnable {
 			if (kvServer.isResponsible(msg.getKey(), false)) {
 				try {
 					// Decrypt key first, then run getKV
-					String decryptedKey = decrypt(msg.getKey(), this.serverPrivateKey);
+					// String decryptedKey = decrypt(msg.getKey(), this.serverPrivateKey);
 
-					returnValue = kvServer.getKV(decryptedKey);
+					// returnValue = kvServer.getKV(decryptedKey);
 					if (returnValue != null) {
 						returnStatus = StatusType.GET_SUCCESS;
 					} else {

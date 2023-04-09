@@ -21,6 +21,7 @@ import java.math.BigInteger;
 import org.apache.commons.codec.digest.DigestUtils;
 
 import org.apache.log4j.Logger;
+import org.omg.SendingContext.RunTime;
 
 import client.ClientSocketListener.SocketStatus;
 
@@ -31,6 +32,9 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
 import javax.crypto.Cipher;
+import javax.management.RuntimeErrorException;
+
+import java.security.GeneralSecurityException;
 
 public class KVStore extends Thread implements Serializable, KVCommInterface {
 
@@ -49,8 +53,27 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 	private static final int DROP_SIZE = 1024 * BUFFER_SIZE;
 	
 	private TreeMap<String, String> metaData = new TreeMap<String, String>();
-	private PrivateKey clientPrivateKey;
-	private PublicKey clientPublicKey;
+
+
+	private static PrivateKey clientPrivateKey;
+	private static PublicKey clientPublicKey;
+
+	private static PrivateKey serverPrivateKey;
+	private static PublicKey serverPublicKey;
+
+	static {
+		// Generate public/private key
+		KeyPairGenerator kpg = null;
+		try {
+			kpg = KeyPairGenerator.getInstance("RSA/ECB/PKCS1Padding");
+		} catch (GeneralSecurityException e) {
+			throw new RuntimeException(e);
+		}	
+
+		KeyPair clientKeyPair = kpg.generateKeyPair();
+		clientPrivateKey = clientKeyPair.getPrivate();
+		clientPublicKey = clientKeyPair.getPublic();
+	}
 
 	/**
 	 * Initialize KVStore with address and port of KVServer
@@ -62,14 +85,6 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		this.address = address;
 		this.port = port;
 		this.streamsOpen = false;
-
-		// Generate public/private key
-		KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-		// initialize generator for 2048 bit keysize, RSA 1024 has been cracked
-		kpg.initialize(2048);
-		KeyPair clientKeyPair = kpg.generateKeyPair();
-		this.clientPrivateKey = clientKeyPair.getPrivate();
-		this.clientPublicKey = clientKeyPair.getPublic();
 	}
 
 	/**
@@ -180,19 +195,57 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		listeners.add(listener);
 	}
 
+	public byte[] encrypt(byte[] data, PublicKey publicKey) {
+		Cipher cipher = null;
+		byte[] encrypted;
+
+		try {
+			cipher = Cipher.getInstance("RSA");
+			cipher.init(Cipher.ENCRYPT_MODE, clientPublicKey, new SecureRandom());
+			encrypted = cipher.doFinal(data);
+		} catch (GeneralSecurityException e) {
+			throw new RuntimeException(e);
+			// graceful exit
+		}
+    	
+		return encrypted;
+	}
+
+	public byte[] decrypt(byte[] encryptedData, PrivateKey privateKey) {
+		Cipher cipher = null;
+		byte[] decrypted;
+
+		try {
+			cipher = Cipher.getInstance("RSA");
+    		cipher.init(Cipher.DECRYPT_MODE, clientPrivateKey);
+
+			decrypted = cipher.doFinal(encryptedData);
+		} catch (GeneralSecurityException e) {
+			throw new RuntimeException(e);
+			// graceful exit
+		}
+    	
+		return decrypted;
+	}
+
 	@Override
 	public void sendMessage(KVMessage msg) throws IOException {
 		//byte[] msgBytes = SerializationUtils.serialize(msg);
 		byte[] msgBytes = msg.getMsgBytes();
+
+		// Encrypt the KVMessage bytes
+		byte[] encryptedData = encrypt(msgBytes, clientPublicKey); // serverPublicKey
+
 		//logger.debug("msgBytes = null is " + (msgBytes == null));
 		//logger.debug("output = null is " + (output == null));
-		output.write(msgBytes, 0, msgBytes.length);
+		output.write(encryptedData, 0, encryptedData.length); // output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
 		logger.info("Send message:\t '" + msg.getMsg() + "'");
 	}
 
 	@Override
 	public KVMessage receiveMessage() throws IOException {
+		// Decrypt the bytes received
 
 		int index = 0;
 		byte[] msgBytes = null, tmp = null;
@@ -247,44 +300,19 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 
 		msgBytes = tmp;
 
+		// Decrypt here
+		byte[] decryptedBytes = decrypt(msgBytes, clientPrivateKey); // ClientPrivateKey
+
 		//KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
-		KVMessage msg = new KVMessage(msgBytes);
+		KVMessage msg = new KVMessage(decryptedBytes); //KVMessage msg = new KVMessage(msgBytes);
 		logger.info("Receive message:\t '" + msg.getMsg() + "'");
 
 		return msg;
 	}
 
-	public byte[] encrypt(String text, PublicKey publicKey) {
-		Cipher cipher = Cipher.getInstance("RSA");
-		cipher.init(Cipher.ENCRYPT_MODE, clientPublicKey, new SecureRandom());
-
-    	byte[] encrypted = cipher.doFinal(plaintext.getBytes());
-    	
-		return encrypted;
-	}
-
-	public String decrypt(byte[] encryptedText, PrivateKey privateKey) {
-		Cipher cipher = Cipher.getInstance("RSA");
-    	cipher.init(Cipher.DECRYPT_MODE, clientPrivateKey);
-
-    	byte[] decrypted = cipher.doFinal(encryptedText);
-    	
-		return new String(decrypted);
-	}
-
 	@Override
 	public KVMessage put(String key, String value) throws Exception {
-		String preEncryptedKey = key.trim();
-		byte[] encryptedKey = encrypt(preEncryptedKey, publicKey);
-
-		// encrypting an empty string ("") results in errors, so replace "" with a specific phrase
-		if (value == "") {
-			value = "EMPTY STRING";
-		}
-		String preEncryptedValue = value;
-		byte[] encryptedValue = encrypt(preEncryptedValue, publicKey);
-		// Encrypt before sending message
-		KVMessage msg = new KVMessage(encryptedKey, encryptedValue, StatusType.PUT);
+		KVMessage msg = new KVMessage(key, value, StatusType.PUT);
 		sendMessage(msg);
 
 		return msg;
@@ -292,10 +320,7 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 
 	@Override
 	public KVMessage get(String key) throws Exception {		
-		String preEncrypt = key.trim();
-		byte[] encrypted = encrypt(preEncrypt, publicKey);
-		// Encrypt before sending message
-		KVMessage msg = new KVMessage(encrypted, "", StatusType.GET);
+		KVMessage msg = new KVMessage(key.trim(), "", StatusType.GET);
 		//logger.debug("msg is " + msg.getMsg());
 		sendMessage(msg);
 

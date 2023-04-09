@@ -36,6 +36,8 @@ import java.security.PublicKey;
 import java.security.SecureRandom;
 import javax.crypto.Cipher;
 
+import java.security.GeneralSecurityException;
+
 public class ECSClient extends Thread implements IECSClient {
 
     private static Logger logger = Logger.getRootLogger();
@@ -47,10 +49,25 @@ public class ECSClient extends Thread implements IECSClient {
     //private HashMap<String, Socket> socketMap = new HashMap<>();
     private HashMap<String, KVServerConnection> connectionMap = new HashMap<>();
 
-    // Generate public/private key
-	KeyPair ECSKeyPair = KeyPairGenerator.generateKeyPair();
-	PrivateKey ECSPrivateKey = ECSPair.getPrivate();
-	PublicKey ECSPublicKey = ECSKeyPair.getPublic();
+    private static PrivateKey ECSPrivateKey;
+    private static PublicKey ECSPublicKey;
+
+    private static PrivateKey serverPrivateKey;
+	private static PublicKey serverPublicKey;
+
+	static {
+		// Generate public/private key
+		KeyPairGenerator kpg = null;
+		try {
+			kpg = KeyPairGenerator.getInstance("RSA/ECB/PKCS1Padding");
+		} catch (GeneralSecurityException e) {
+			throw new RuntimeException(e);
+		}	
+
+		KeyPair ECSKeyPair = kpg.generateKeyPair();
+		ECSPrivateKey = ECSKeyPair.getPrivate();
+		ECSPublicKey = ECSKeyPair.getPublic();
+	}
 
     public ECSClient(String addr, int port) {
 		this.port = port;
@@ -207,7 +224,7 @@ public class ECSClient extends Thread implements IECSClient {
 
 		running = initializeECS();
 
-		if (ECSServerSocket != null) {
+		if (ECSServerSocket != null) {   
 			while (isRunning()) {
 				try {
 					Socket kvServer = ECSServerSocket.accept();
