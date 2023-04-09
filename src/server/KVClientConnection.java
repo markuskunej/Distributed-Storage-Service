@@ -136,7 +136,12 @@ public class KVClientConnection implements Runnable {
 		byte[] msgBytes = msg.getMsgBytes();
 
 		// Encrypt the KVMessage bytes
-		byte[] encryptedData = encrypt(msgBytes, serverPublicKey); // clientPublicKey
+		byte[] encryptedData = encrypt(msgBytes, serverPublicKey);
+
+		/****************************************************************************
+		 * In the encrypt call above, serverPublicKey should be the clientPublicKey *
+		 * of the client the message is being sent to.								*
+		 ****************************************************************************/
 
 		output.write(encryptedData, 0, encryptedData.length); // output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
@@ -202,7 +207,12 @@ public class KVClientConnection implements Runnable {
 		msgBytes = tmp;
 
 		// Decrypt here
-		byte[] decryptedBytes = decrypt(msgBytes, serverPrivateKey); // serverPrivateKey
+		byte[] decryptedBytes = decrypt(msgBytes, serverPrivateKey);
+
+		/***********************************************************************
+		 * In the decrypt call above, serverPrivateKey is correct - the server *
+		 * decrypts the data with its own private key	   					   *
+		 ***********************************************************************/
 
 		//KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
 		KVMessage receivedMsg = new KVMessage(decryptedBytes); // KVMessage receivedMsg = new KVMessage(msgBytes);

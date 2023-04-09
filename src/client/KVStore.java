@@ -236,6 +236,11 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		// Encrypt the KVMessage bytes
 		byte[] encryptedData = encrypt(msgBytes, clientPublicKey); // serverPublicKey
 
+		/****************************************************************************
+		 * In the encrypt call above, clientPublicKey should be the serverPublicKey *
+		 * of the server the message is being sent to.								*
+		 ****************************************************************************/
+
 		//logger.debug("msgBytes = null is " + (msgBytes == null));
 		//logger.debug("output = null is " + (output == null));
 		output.write(encryptedData, 0, encryptedData.length); // output.write(msgBytes, 0, msgBytes.length);
@@ -301,7 +306,12 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		msgBytes = tmp;
 
 		// Decrypt here
-		byte[] decryptedBytes = decrypt(msgBytes, clientPrivateKey); // ClientPrivateKey
+		byte[] decryptedBytes = decrypt(msgBytes, clientPrivateKey);
+		
+		/***********************************************************************
+		 * In the decrypt call above, clientPrivateKey is correct - the client *
+		 * decrypts the data with its own private key	   					   *
+		 ***********************************************************************/
 
 		//KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
 		KVMessage msg = new KVMessage(decryptedBytes); //KVMessage msg = new KVMessage(msgBytes);
