@@ -90,6 +90,7 @@ public class KVServer extends Thread implements IKVServer {
 	private static PrivateKey serverPrivateKey;
 	private static PublicKey serverPublicKey;
 	private PublicKey clientPublicKey;
+	private PublicKey otherServerPublicKey;
 
 	static {
 		// Generate public/private key
@@ -173,13 +174,27 @@ public class KVServer extends Thread implements IKVServer {
 		return serverPrivateKey;
 	}
 
-	public void setClientPublicKey(String key){
-		try{
-			//byte[] byteKey = Base64.getDecoder()(key.getBytes());
+	private PublicKey strToPublicKey (String key) {
+		try {
 			X509EncodedKeySpec X509publicKey = new X509EncodedKeySpec(key.getBytes());
 			KeyFactory kf = KeyFactory.getInstance("RSA/ECB/PKCS1Padding");
 
-			this.clientPublicKey = kf.generatePublic(X509publicKey);
+			return kf.generatePublic(X509publicKey);
+		} catch (Exception e) {
+			e.printStackTrace();
+			return null;
+		}
+	}
+
+	public void setClientPublicKey(String key){
+			//byte[] byteKey = Base64.getDecoder()(key.getBytes());
+		this.clientPublicKey = strToPublicKey(key);
+	}
+
+	public void setOtherServerPublicKey(String key){
+		try{
+			//byte[] byteKey = Base64.getDecoder()(key.getBytes());
+			this.otherServerPublicKey = strToPublicKey(key);
 		}
 		catch(Exception e){
 			e.printStackTrace();
@@ -799,7 +814,7 @@ public class KVServer extends Thread implements IKVServer {
 
 	public void sendServerMessage(KVMessage msg) {
 		//logger.info("in send Server Message");
-		if (serverMsgHandler != null) {
+		if (serverMsgHandler != null && otherServerPublicKey != null)  {
 			//logger.info("in send Server Message, handler not null");
 			try {
 				serverMsgHandler.sendMessage(msg);
@@ -814,6 +829,7 @@ public class KVServer extends Thread implements IKVServer {
 			logger.info("Closing connection to other KVServer");
 			serverMsgHandler.closeConnection();
 			serverMsgHandler = null;
+			otherServerPublicKey = null;
 		}
 	}
 

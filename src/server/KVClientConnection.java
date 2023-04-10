@@ -14,7 +14,8 @@ import org.apache.commons.lang3.SerializationUtils;
 
 import shared.messages.KVMessage;
 import shared.messages.IKVMessage.StatusType;
-
+import java.security.spec.X509EncodedKeySpec;
+import java.security.KeyFactory;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
@@ -33,6 +34,7 @@ public class KVClientConnection implements Runnable {
 	private static Logger logger = Logger.getRootLogger();
 
 	private boolean isOpen;
+	private boolean fromClient = true;
 	private static final int BUFFER_SIZE = 1024;
 	private static final int DROP_SIZE = 128 * BUFFER_SIZE;
 
@@ -40,6 +42,9 @@ public class KVClientConnection implements Runnable {
 	private InputStream input;
 	private OutputStream output;
 	private KVServer kvServer;
+
+	private PublicKey clientPublicKey;
+	private PublicKey otherServerPublicKey;
 
 	/**
 	 * Constructs a new CientConnection object for a given TCP socket.
@@ -65,19 +70,23 @@ public class KVClientConnection implements Runnable {
 					"Connection to KVServer established: "
 							+ kvClientSocket.getLocalAddress() + " / "
 							+ kvClientSocket.getLocalPort(),
-					"", StatusType.STRING), false);
+					"", StatusType.STRING), false, clientPublicKey);
 
 			// send initial metadata update
-			sendMessage(new KVMessage("", kvServer.getMetaData(), StatusType.METADATA), false);
+			sendMessage(new KVMessage("", kvServer.getMetaData(), StatusType.METADATA), false, clientPublicKey);
 
 			// send server public key to client
 			String str_server_pub_key = Base64.getEncoder().encodeToString(kvServer.getPublicKey().getEncoded());			
-			sendMessage(new KVMessage("", str_server_pub_key, StatusType.PUBLIC_KEY_SERVER), false);
+			sendMessage(new KVMessage("", str_server_pub_key, StatusType.PUBLIC_KEY_SERVER), false, clientPublicKey);
 
-			// receive client public key
-			KVMessage clientPublicKeyMsg = receiveMessage(false);
-			if (clientPublicKeyMsg.getStatus() == StatusType.PUBLIC_KEY_CLIENT) {
-				kvServer.setClientPublicKey(clientPublicKeyMsg.getValue());
+			// receive client (or other KVserver) public key
+			KVMessage publicKeyMsg = receiveMessage();
+			if (publicKeyMsg.getStatus() == StatusType.PUBLIC_KEY_CLIENT) {
+				this.clientPublicKey = strToPublicKey(publicKeyMsg.getValue());
+				//kvServer.setClientPublicKey(clientPublicKeyMsg.getValue());
+			} else if (publicKeyMsg.getStatus() == StatusType.PUBLIC_KEY_SERVER) {
+				this.otherServerPublicKey = strToPublicKey(publicKeyMsg.getValue());
+				//kvServer.setOtherServerPublicKey(clientPub)
 			} else {
 				logger.error("First message received wasn't a public key, close the server");
 				isOpen = false;
@@ -85,9 +94,14 @@ public class KVClientConnection implements Runnable {
 
 			while (isOpen) {
 				try {
-					KVMessage latestMsg = receiveMessage(true);
+					KVMessage latestMsg = receiveMessage();
 					KVMessage responseMsg = handleMessage(latestMsg);
-					sendMessage(responseMsg, true);
+					// depending on whether the message was received from a client or server, encrypt with the correct public key
+					if (fromClient == true) {
+						sendMessage(responseMsg, true, clientPublicKey);
+					} else {
+						sendMessage(responseMsg, true, otherServerPublicKey);
+					}
 
 					/*
 					 * connection either terminated by the client or lost due to
@@ -125,13 +139,13 @@ public class KVClientConnection implements Runnable {
 	 * @param msg the message that is to be sent.
 	 * @throws IOException some I/O error regarding the output stream
 	 */
-	public void sendMessage(KVMessage msg, boolean encrypt) throws IOException {
+	public void sendMessage(KVMessage msg, boolean encrypt, PublicKey key) throws IOException {
 		//byte[] msgBytes = SerializationUtils.serialize(msg);
 		byte[] msgBytes = msg.getMsgBytes();
 
 		if (encrypt==true) {
 			// Encrypt the KVMessage bytes
-			msgBytes = encrypt(msgBytes, kvServer.getPublicKey());
+			msgBytes = encrypt(msgBytes, key);
 		}
 		/****************************************************************************
 		 * In the encrypt call above, serverPublicKey should be the clientPublicKey *
@@ -146,7 +160,7 @@ public class KVClientConnection implements Runnable {
 				+ msg.getMsg() + "'");
 	}
 
-	private KVMessage receiveMessage(boolean encrypted) throws IOException {
+	private KVMessage receiveMessage() throws IOException {
 
 		int index = 0;
 		byte[] msgBytes = null, tmp = null;
@@ -201,10 +215,8 @@ public class KVClientConnection implements Runnable {
 
 		msgBytes = tmp;
 
-		if (encrypted==true) {
-			// Decrypt here
-			msgBytes = decrypt(msgBytes, kvServer.getPrivateKey());
-		}
+		// Decrypt here
+		byte[] msgBytesDecrypted = decrypt(msgBytes, kvServer.getPrivateKey());
 
 		/***********************************************************************
 		 * In the decrypt call above, serverPrivateKey is correct - the server *
@@ -212,7 +224,7 @@ public class KVClientConnection implements Runnable {
 		 ***********************************************************************/
 
 		//KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
-		KVMessage receivedMsg = new KVMessage(msgBytes); // KVMessage receivedMsg = new KVMessage(msgBytes);
+		KVMessage receivedMsg = new KVMessage(msgBytesDecrypted); // KVMessage receivedMsg = new KVMessage(msgBytes);
 
 		/* build final String */
 		logger.info("RECEIVE \t<"
@@ -228,7 +240,7 @@ public class KVClientConnection implements Runnable {
 
 		try {
 			cipher = Cipher.getInstance("RSA");
-			cipher.init(Cipher.ENCRYPT_MODE, kvServer.getPublicKey(), new SecureRandom());
+			cipher.init(Cipher.ENCRYPT_MODE, publicKey, new SecureRandom());
 
 			encrypted = cipher.doFinal(data);
 		} catch (GeneralSecurityException e) {
@@ -245,7 +257,7 @@ public class KVClientConnection implements Runnable {
 
 		try {
 			cipher = Cipher.getInstance("RSA");
-			cipher.init(Cipher.DECRYPT_MODE, kvServer.getPrivateKey());
+			cipher.init(Cipher.DECRYPT_MODE, privateKey);
 	
 			decrypted = cipher.doFinal(encryptedData);
 		} catch (GeneralSecurityException e) {
@@ -256,7 +268,21 @@ public class KVClientConnection implements Runnable {
 		return decrypted;
 	}
 
+	private PublicKey strToPublicKey (String key) {
+		try {
+			X509EncodedKeySpec X509publicKey = new X509EncodedKeySpec(key.getBytes());
+			KeyFactory kf = KeyFactory.getInstance("RSA/ECB/PKCS1Padding");
+
+			return kf.generatePublic(X509publicKey);
+		} catch (Exception e) {
+			e.printStackTrace();
+			return null;
+		}
+	}
+
 	private KVMessage handleMessage(KVMessage msg) throws Exception {
+		// need to determine whether message is from client or other kvserver for encryption purposes
+		fromClient = true;
 		String returnValue = msg.getValue();
 		StatusType returnStatus = msg.getStatus();
 		if (msg.getStatus() == StatusType.PUT) {
@@ -279,6 +305,7 @@ public class KVClientConnection implements Runnable {
 				returnStatus = StatusType.SERVER_NOT_RESPONSIBLE;
 			}
 		} else if (msg.getStatus() == StatusType.PUT_REPLICATE) {
+			fromClient = false;
 			try {
 				// Decrypt here too?
 				returnStatus = kvServer.putKV(msg.getKey(), msg.getValue());
@@ -307,6 +334,7 @@ public class KVClientConnection implements Runnable {
 				returnStatus = StatusType.SERVER_NOT_RESPONSIBLE;
 			}
 		} else if (msg.getStatus() == StatusType.TRANSFER_TO) {
+			fromClient = false;
 			try {
 				// Decrypt here too?
 				kvServer.insertKvPairs(msg.getKey());
@@ -317,6 +345,7 @@ public class KVClientConnection implements Runnable {
 				returnStatus = StatusType.TRANSFER_TO_ERROR;
 			}
 		} else if (msg.getStatus() == StatusType.TRANSFER_ALL_TO) {
+			fromClient = false;
 			try {
 				// Decrypt here too?
 
@@ -348,13 +377,13 @@ public class KVClientConnection implements Runnable {
 
 		if (returnStatus == StatusType.SERVER_NOT_RESPONSIBLE) {
 			// send metaupdate to kvstore first
-			sendMessage(new KVMessage("Update metadata and retry", "", StatusType.SERVER_NOT_RESPONSIBLE), true);
-			sendMessage(new KVMessage("", kvServer.getMetaData(), StatusType.METADATA), true);
+			sendMessage(new KVMessage("Update metadata and retry", "", StatusType.SERVER_NOT_RESPONSIBLE), true, clientPublicKey);
+			sendMessage(new KVMessage("", kvServer.getMetaData(), StatusType.METADATA), true, clientPublicKey);
 			// retry same message
 			return msg;
 		} else {
 			// Can leave msg.getKey() and returnValue, as they will either still be encrypted versions
-			// sent to the server from the client or newly encrypted from a GET, so the client can decrypt them 
+			// sent to the server from the client or newly encrypted from a GET, so the client can decrypt them
 			return new KVMessage(msg.getKey(), returnValue, returnStatus);
 		}
 	}

@@ -9,6 +9,7 @@ import java.net.Socket;
 import java.net.UnknownHostException;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.Base64;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
@@ -311,6 +312,14 @@ public class KVClient implements IKVClient, ClientSocketListener {
             } else if (status == StatusType.PUBLIC_KEY_SERVER) {
                 // set server's public key
                 kvStore.setServerPublicKey(msg.getValue());
+                // send client public key
+                String str_client_pub_key = Base64.getEncoder().encodeToString(kvStore.getPublicKey().getEncoded());
+                try {			
+                    kvStore.sendMessage(new KVMessage("", str_client_pub_key, StatusType.PUBLIC_KEY_CLIENT));
+                } catch (Exception e) {
+                    logger.error("Error when trying to send the public key to the server!");
+                    e.printStackTrace();
+                }
             } else if (status == StatusType.METADATA) {
                 //logger.debug("new metadata is " + msg.getValueAsMetadata().toString());
                 kvStore.setMetaData(msg.getValueAsMetadata());

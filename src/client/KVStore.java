@@ -176,6 +176,7 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 			output.close();
 			kvStoreSocket.close();
 			kvStoreSocket = null;
+			serverPublicKey = null;
 			logger.info("connection closed!");
 		}
 	}
@@ -211,6 +212,10 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		}
 	}
 
+	public PublicKey getPublicKey() {
+		return clientPublicKey;
+	}
+
 	@Override
 	public void addListener(ClientSocketListener listener) {
 		listeners.add(listener);
@@ -222,7 +227,7 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 
 		try {
 			cipher = Cipher.getInstance("RSA");
-			cipher.init(Cipher.ENCRYPT_MODE, clientPublicKey, new SecureRandom());
+			cipher.init(Cipher.ENCRYPT_MODE, publicKey, new SecureRandom());
 			encrypted = cipher.doFinal(data);
 		} catch (GeneralSecurityException e) {
 			throw new RuntimeException(e);
@@ -238,7 +243,7 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 
 		try {
 			cipher = Cipher.getInstance("RSA");
-    		cipher.init(Cipher.DECRYPT_MODE, clientPrivateKey);
+    		cipher.init(Cipher.DECRYPT_MODE, privateKey);
 
 			decrypted = cipher.doFinal(encryptedData);
 		} catch (GeneralSecurityException e) {
