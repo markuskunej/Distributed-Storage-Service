@@ -22,6 +22,9 @@ public interface IKVMessage {
 		STRING, /* pass text using the key param */
 		INITIAL,
 		METADATA,
+		PUBLIC_KEY_CLIENT,
+		PUBLIC_KEY_CLIENT_SUCCESS,
+		PUBLIC_KEY_SERVER,
 		TRANSFER_TO,
 		TRANSFER_TO_SUCCESS,
 		TRANSFER_TO_ERROR,

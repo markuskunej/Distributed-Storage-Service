@@ -9,6 +9,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.Random;
@@ -21,16 +22,17 @@ import java.math.BigInteger;
 import org.apache.commons.codec.digest.DigestUtils;
 
 import org.apache.log4j.Logger;
-import org.omg.SendingContext.RunTime;
 
 import client.ClientSocketListener.SocketStatus;
 
 // Encryption Imports
+import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
+import java.security.spec.X509EncodedKeySpec;
 import javax.crypto.Cipher;
 import javax.management.RuntimeErrorException;
 
@@ -98,7 +100,13 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 			streamsOpen = true;
 			while (isRunning()) {
 				try {
-					KVMessage latestMsg = receiveMessage();
+					KVMessage latestMsg;
+					if (serverPublicKey != null) {
+						latestMsg = receiveMessage(true);
+					} else {
+						// hasn't received server's public key, assume message is unecrypted
+						latestMsg = receiveMessage(false);
+					}
 					for (ClientSocketListener listener : listeners) {
 						listener.handleNewMessage(latestMsg);
 					}
@@ -190,6 +198,19 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		this.metaData = metaData;
 	}
 
+	public void setServerPublicKey(String key){
+		try{
+			//byte[] byteKey = Base64.decode(key.getBytes());
+			X509EncodedKeySpec X509publicKey = new X509EncodedKeySpec(key.getBytes());
+			KeyFactory kf = KeyFactory.getInstance("RSA/ECB/PKCS1Padding");
+
+			this.serverPublicKey = kf.generatePublic(X509publicKey);
+		}
+		catch(Exception e){
+			e.printStackTrace();
+		}
+	}
+
 	@Override
 	public void addListener(ClientSocketListener listener) {
 		listeners.add(listener);
@@ -233,9 +254,12 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		//byte[] msgBytes = SerializationUtils.serialize(msg);
 		byte[] msgBytes = msg.getMsgBytes();
 
-		// Encrypt the KVMessage bytes
-		byte[] encryptedData = encrypt(msgBytes, clientPublicKey); // serverPublicKey
-
+		if (serverPublicKey != null) {
+			// Encrypt the KVMessage bytes
+			msgBytes = encrypt(msgBytes, serverPublicKey); // serverPublicKey
+		} else {
+			logger.error("Error! Tried to send a message before receiving the server public key!");
+		}
 		/****************************************************************************
 		 * In the encrypt call above, clientPublicKey should be the serverPublicKey *
 		 * of the server the message is being sent to.								*
@@ -243,13 +267,13 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 
 		//logger.debug("msgBytes = null is " + (msgBytes == null));
 		//logger.debug("output = null is " + (output == null));
-		output.write(encryptedData, 0, encryptedData.length); // output.write(msgBytes, 0, msgBytes.length);
+		output.write(msgBytes, 0, msgBytes.length); // output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
 		logger.info("Send message:\t '" + msg.getMsg() + "'");
 	}
 
 	@Override
-	public KVMessage receiveMessage() throws IOException {
+	public KVMessage receiveMessage(boolean encrypted) throws IOException {
 		// Decrypt the bytes received
 
 		int index = 0;
@@ -305,16 +329,17 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 
 		msgBytes = tmp;
 
-		// Decrypt here
-		byte[] decryptedBytes = decrypt(msgBytes, clientPrivateKey);
-		
+		if (encrypted=true) {
+			// Decrypt here
+			msgBytes = decrypt(msgBytes, clientPrivateKey);
+		}
 		/***********************************************************************
 		 * In the decrypt call above, clientPrivateKey is correct - the client *
 		 * decrypts the data with its own private key	   					   *
 		 ***********************************************************************/
 
 		//KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
-		KVMessage msg = new KVMessage(decryptedBytes); //KVMessage msg = new KVMessage(msgBytes);
+		KVMessage msg = new KVMessage(msgBytes); //KVMessage msg = new KVMessage(msgBytes);
 		logger.info("Receive message:\t '" + msg.getMsg() + "'");
 
 		return msg;

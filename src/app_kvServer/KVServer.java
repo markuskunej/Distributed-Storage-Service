@@ -36,10 +36,22 @@ import shared.messages.KVMessage;
 import shared.messages.IKVMessage.StatusType;
 import shared.messages.IECSMessage;
 
+import java.util.Base64;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import shared.messages.IECSMessage;
+
+import java.security.GeneralSecurityException;
+// Encryption Imports
+import java.security.KeyFactory;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.SecureRandom;
+import java.security.spec.X509EncodedKeySpec;
+import javax.crypto.Cipher;
 
 public class KVServer extends Thread implements IKVServer {
 
@@ -74,6 +86,24 @@ public class KVServer extends Thread implements IKVServer {
 	private Properties cache;
 
 	private ArrayList lfuFreq;
+
+	private static PrivateKey serverPrivateKey;
+	private static PublicKey serverPublicKey;
+	private PublicKey clientPublicKey;
+
+	static {
+		// Generate public/private key
+		KeyPairGenerator kpg = null;
+		try {
+			kpg = KeyPairGenerator.getInstance("RSA/ECB/PKCS1Padding");
+		} catch (GeneralSecurityException e) {
+			throw new RuntimeException(e);
+		}	
+
+		KeyPair serverKeyPair = kpg.generateKeyPair();
+		serverPrivateKey = serverKeyPair.getPrivate();
+		serverPublicKey = serverKeyPair.getPublic();
+	}
 
 	/**
 	 * Start KV Server at given port
@@ -133,6 +163,27 @@ public class KVServer extends Thread implements IKVServer {
 
 	public String getHash() {
 		return serverHash;
+	}
+
+	public PublicKey getPublicKey() {
+		return serverPublicKey;
+	}
+
+	public PrivateKey getPrivateKey() {
+		return serverPrivateKey;
+	}
+
+	public void setClientPublicKey(String key){
+		try{
+			//byte[] byteKey = Base64.getDecoder()(key.getBytes());
+			X509EncodedKeySpec X509publicKey = new X509EncodedKeySpec(key.getBytes());
+			KeyFactory kf = KeyFactory.getInstance("RSA/ECB/PKCS1Padding");
+
+			this.clientPublicKey = kf.generatePublic(X509publicKey);
+		}
+		catch(Exception e){
+			e.printStackTrace();
+		}
 	}
 
 	@Override

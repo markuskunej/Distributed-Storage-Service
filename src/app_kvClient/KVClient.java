@@ -83,7 +83,6 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 if (tokens.length == 3) {
                     try {
                         connectToResponsibleServer(tokens[1], true);
-                        // ENCRYPT HERE
                         kvStore.put(tokens[1], tokens[2]);
                     } catch (Exception e) {
                         printError("Unable to send message!");
@@ -92,7 +91,6 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 } else if (tokens.length == 2) {
                     try {
                         connectToResponsibleServer(tokens[1], true);
-                        // ENCRYPT HERE
                         kvStore.put(tokens[1], null); // delete operation
                     } catch (Exception e) {
                         printError("Unable to send message!");
@@ -110,9 +108,7 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 if (tokens.length == 2) {
                     try {
                         connectToResponsibleServer(tokens[1], false);
-                        // ENCRYPT HERE
                         kvStore.get(tokens[1]);
-                        // DECRYPT HERE
                     } catch (Exception e) {
 
                         disconnect();
@@ -288,11 +284,8 @@ public class KVClient implements IKVClient, ClientSocketListener {
         try {
             // retry operations
             if (msg.getStatus() == StatusType.GET) {
-                // ENCRYPT HERE
                 kvStore.get(msg.getKey());
-                // DECRYPT HERE
             } else if (msg.getStatus() == StatusType.PUT) {
-                // ENCRYPT HERE
                 kvStore.put(msg.getKey(), msg.getValue());
             }
         } catch (UnknownHostException e) {
@@ -315,6 +308,9 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 if (!msg.getKey().isEmpty()) {
                     System.out.println(msg.getKey());
                 }
+            } else if (status == StatusType.PUBLIC_KEY_SERVER) {
+                // set server's public key
+                kvStore.setServerPublicKey(msg.getValue());
             } else if (status == StatusType.METADATA) {
                 //logger.debug("new metadata is " + msg.getValueAsMetadata().toString());
                 kvStore.setMetaData(msg.getValueAsMetadata());

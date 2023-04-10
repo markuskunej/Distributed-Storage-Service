@@ -32,7 +32,7 @@ public interface KVCommInterface {
 	 */
 	public void sendMessage(KVMessage msg) throws IOException;
 
-	public KVMessage receiveMessage() throws IOException;
+	public KVMessage receiveMessage(boolean encrypted) throws IOException;
 
 	/**
 	 * Inserts a key-value pair into the KVServer.
