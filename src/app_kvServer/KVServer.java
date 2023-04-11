@@ -96,7 +96,9 @@ public class KVServer extends Thread implements IKVServer {
 		// Generate public/private key
 		KeyPairGenerator kpg = null;
 		try {
-			kpg = KeyPairGenerator.getInstance("RSA/ECB/PKCS1Padding");
+			kpg = KeyPairGenerator.getInstance("RSA");
+			SecureRandom random = new SecureRandom();
+			kpg.initialize(2048, random); // 2048-bit key
 		} catch (GeneralSecurityException e) {
 			throw new RuntimeException(e);
 		}	
@@ -177,7 +179,7 @@ public class KVServer extends Thread implements IKVServer {
 	private PublicKey strToPublicKey (String key) {
 		try {
 			X509EncodedKeySpec X509publicKey = new X509EncodedKeySpec(key.getBytes());
-			KeyFactory kf = KeyFactory.getInstance("RSA/ECB/PKCS1Padding");
+			KeyFactory kf = KeyFactory.getInstance("RSA");
 
 			return kf.generatePublic(X509publicKey);
 		} catch (Exception e) {

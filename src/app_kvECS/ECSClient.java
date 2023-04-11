@@ -59,7 +59,7 @@ public class ECSClient extends Thread implements IECSClient {
 		// Generate public/private key
 		KeyPairGenerator kpg = null;
 		try {
-			kpg = KeyPairGenerator.getInstance("RSA/ECB/PKCS1Padding");
+			kpg = KeyPairGenerator.getInstance("RSA");
 		} catch (GeneralSecurityException e) {
 			throw new RuntimeException(e);
 		}	

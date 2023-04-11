@@ -4,7 +4,10 @@ import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.util.Base64;
+import java.util.Arrays;
+
 
 import org.apache.log4j.*;
 
@@ -20,6 +23,9 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
 import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
 import java.security.GeneralSecurityException;
 
 /**
@@ -76,7 +82,8 @@ public class KVClientConnection implements Runnable {
 			sendMessage(new KVMessage("", kvServer.getMetaData(), StatusType.METADATA), false, clientPublicKey);
 
 			// send server public key to client
-			String str_server_pub_key = Base64.getEncoder().encodeToString(kvServer.getPublicKey().getEncoded());			
+			String str_server_pub_key = Base64.getEncoder().encodeToString(kvServer.getPublicKey().getEncoded());
+			logger.info("base64 public key is " + str_server_pub_key);			
 			sendMessage(new KVMessage("", str_server_pub_key, StatusType.PUBLIC_KEY_SERVER), false, clientPublicKey);
 
 			// receive client (or other KVserver) public key
@@ -214,7 +221,8 @@ public class KVClientConnection implements Runnable {
 		}
 
 		msgBytes = tmp;
-
+		logger.info("msgBytes is " + Arrays.toString(msgBytes));
+		logger.info(msgBytes.length);
 		// Decrypt here
 		byte[] msgBytesDecrypted = decrypt(msgBytes, kvServer.getPrivateKey());
 
@@ -234,39 +242,94 @@ public class KVClientConnection implements Runnable {
 		return receivedMsg;
 	}
 
-	public byte[] encrypt(byte[] data, PublicKey publicKey) {
-		Cipher cipher = null;
-		byte[] encrypted;
-
+	public static byte[] encrypt(byte[] data, PublicKey publicKey) {
 		try {
-			cipher = Cipher.getInstance("RSA");
-			cipher.init(Cipher.ENCRYPT_MODE, publicKey, new SecureRandom());
+			// Generate a random symmetric key
+			KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+			keyGen.init(128);
+			SecretKey secretKey = keyGen.generateKey();
 
-			encrypted = cipher.doFinal(data);
+			// Encrypt the message with the symmetric key
+			Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+			cipher.init(Cipher.ENCRYPT_MODE, secretKey);
+			byte[] encryptedData = cipher.doFinal(data);
+
+			// Encrypt the symmetric key with the RSA public key
+			Cipher rsaCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+			rsaCipher.init(Cipher.ENCRYPT_MODE, publicKey);
+			byte[] encryptedKey = rsaCipher.doFinal(secretKey.getEncoded());
+
+			// Combine the encrypted key and the encrypted message
+			byte[] result = new byte[encryptedKey.length + encryptedData.length + Integer.BYTES];
+			ByteBuffer bb = ByteBuffer.wrap(result);
+			bb.putInt(encryptedKey.length);
+			bb.put(encryptedKey);
+			bb.put(encryptedData);
+			return result;
 		} catch (GeneralSecurityException e) {
 			throw new RuntimeException(e);
-			// gracceful exit
 		}
-    	
-		return encrypted;
 	}
 
-	public byte[] decrypt(byte[] encryptedData, PrivateKey privateKey) {
-		Cipher cipher = null;
-		byte[] decrypted;
-
+	public static byte[] decrypt(byte[] combinedData, PrivateKey privateKey) {
 		try {
-			cipher = Cipher.getInstance("RSA");
-			cipher.init(Cipher.DECRYPT_MODE, privateKey);
+			ByteBuffer bb = ByteBuffer.wrap(combinedData);
+			int encryptedKeyLength = bb.getInt();
+			byte[] encryptedKey = new byte[encryptedKeyLength];
+			bb.get(encryptedKey);
+
+			byte[] encryptedData = new byte[bb.remaining()];
+			bb.get(encryptedData);
+
+			// Decrypt the symmetric key with the RSA private key
+			Cipher rsaCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+			rsaCipher.init(Cipher.DECRYPT_MODE, privateKey);
+			byte[] decryptedKey = rsaCipher.doFinal(encryptedKey);
+			SecretKey secretKey = new SecretKeySpec(decryptedKey, "AES");
+
+			// Decrypt the message with the symmetric key
+			Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+			cipher.init(Cipher.DECRYPT_MODE, secretKey);
+			return cipher.doFinal(encryptedData);
+		} catch (GeneralSecurityException e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+
+	// public byte[] encrypt(byte[] data, PublicKey publicKey) {
+	// 	Cipher cipher = null;
+	// 	byte[] encrypted;
+
+	// 	try {
+	// 		cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+	// 		cipher.init(Cipher.ENCRYPT_MODE, publicKey, new SecureRandom());
+
+	// 		encrypted = cipher.doFinal(data);
+	// 	} catch (GeneralSecurityException e) {
+	// 		throw new RuntimeException(e);
+	// 		// gracceful exit
+	// 	}
+    	
+	// 	return encrypted;
+	// }
+
+	// public byte[] decrypt(byte[] encryptedData, PrivateKey privateKey) {
+	// 	Cipher cipher = null;
+	// 	byte[] decrypted;
+
+	// 	try {
+	// 		cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+	// 		cipher.init(Cipher.DECRYPT_MODE, privateKey);
 	
-			decrypted = cipher.doFinal(encryptedData);
-		} catch (GeneralSecurityException e) {
-			throw new RuntimeException(e);
-			// graceful exit
-		}
+	// 		decrypted = cipher.doFinal(encryptedData);
+	// 	} catch (GeneralSecurityException e) {
+	// 		throw new RuntimeException(e);
+	// 		// graceful exit
+	// 	}
     	
-		return decrypted;
-	}
+	// 	return decrypted;
+	// }
 
 	private PublicKey strToPublicKey (String key) {
 		try {
