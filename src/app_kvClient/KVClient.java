@@ -355,7 +355,9 @@ public class KVClient implements IKVClient, ClientSocketListener {
                 System.out.println("DELETE SUCCESS");
             } else if (status == StatusType.DELETE_ERROR) {
                 System.out.println("DELETE ERROR");
-            } else {
+            } else if (status == null) {
+                kvStore.disconnect();
+             }else {
                 // some other message
                 return;
             }

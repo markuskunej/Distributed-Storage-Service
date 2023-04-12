@@ -14,6 +14,7 @@ import shared.messages.IECSMessage;
 import shared.messages.KVMessage;
 import shared.messages.KVMessage;
 import shared.messages.IKVMessage.StatusType;
+import shared.Crypto;
 
 import java.security.GeneralSecurityException;
 // Encryption Imports
@@ -68,9 +69,9 @@ public class ServerMessageHandler implements Runnable {
 				try {
 					KVMessage latestMsg;
 					if (otherServerPublicKey != null) {
-						latestMsg = receiveMessage(true);
+						latestMsg = Crypto.receiveEncryptedMessage(input, kvServer.getPrivateKey());
 					} else {
-						latestMsg = receiveMessage(false);
+						latestMsg = receiveMessage();
 					}
 					handleMessage(latestMsg);
             
@@ -107,14 +108,14 @@ public class ServerMessageHandler implements Runnable {
 		byte[] msgBytes = msg.getMsgBytes();
 		if (otherServerPublicKey != null) {
 			// Encrypt the KVMessage bytes
-			msgBytes = encrypt(msgBytes, otherServerPublicKey); // serverPublicKey
+			msgBytes = Crypto.encrypt(msgBytes, otherServerPublicKey); // serverPublicKey
 		}
 		output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
 		logger.info("Send message to successor KVServer:\t '" + msg.getMsg() + "'");
 	}
 
-	public KVMessage receiveMessage(boolean encrypted) throws IOException {
+	public KVMessage receiveMessage() throws IOException {
 
 		int index = 0;
 		byte[] msgBytes = null, tmp = null;
@@ -169,10 +170,10 @@ public class ServerMessageHandler implements Runnable {
 
 		msgBytes = tmp;
 
-		if (encrypted=true) {
-			// Decrypt here
-			msgBytes = decrypt(msgBytes, kvServer.getPrivateKey());
-		}
+		// if (encrypted==true) {
+		// 	// Decrypt here
+		// 	msgBytes = decrypt(msgBytes, kvServer.getPrivateKey());
+		// }
 
 		//KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
 		KVMessage msg = new KVMessage(msgBytes);
@@ -181,26 +182,25 @@ public class ServerMessageHandler implements Runnable {
 		return msg;
 	}
 
-	private PublicKey strToPublicKey (String key) {
-		try {
-			X509EncodedKeySpec X509publicKey = new X509EncodedKeySpec(key.getBytes());
-			KeyFactory kf = KeyFactory.getInstance("RSA/ECB/PKCS1Padding");
+	// private PublicKey strToPublicKey (String key) {
+	// 	try {
+	// 		X509EncodedKeySpec X509publicKey = new X509EncodedKeySpec(key.getBytes());
+	// 		KeyFactory kf = KeyFactory.getInstance("RSA/ECB/PKCS1Padding");
 
-			return kf.generatePublic(X509publicKey);
-		} catch (Exception e) {
-			e.printStackTrace();
-			return null;
-		}
-	}
+	// 		return kf.generatePublic(X509publicKey);
+	// 	} catch (Exception e) {
+	// 		e.printStackTrace();
+	// 		return null;
+	// 	}
+	// }
 
 	private void handleMessage(KVMessage msg) throws Exception {
 		if (msg.getStatus() == StatusType.PUBLIC_KEY_SERVER) {
-			this.otherServerPublicKey = strToPublicKey(msg.getValue());
+			this.otherServerPublicKey = Crypto.strToPublicKey(msg.getValue());
 			logger.info("Received public key from connected KVServer, respond with its own public key");
 			String str_server_pub_key = Base64.getEncoder().encodeToString(kvServer.getPublicKey().getEncoded());			
 			sendMessage(new KVMessage("", str_server_pub_key, StatusType.PUBLIC_KEY_SERVER));
-		}
-		if (msg.getStatus() == StatusType.TRANSFER_TO_SUCCESS) {
+		} else if (msg.getStatus() == StatusType.TRANSFER_TO_SUCCESS) {
 			logger.info("Succesfully transferred kv pairs to successor KVServer.");
 			logger.info("Closing connection with successor KVServer.");
 			kvServer.sendEcsMessage(new ECSMessage(msg.getKey(), IECSMessage.StatusType.TRANSFER_TO_REQUEST_SUCCESS));
@@ -229,36 +229,36 @@ public class ServerMessageHandler implements Runnable {
 		}
 	}
 
-		public byte[] encrypt(byte[] data, PublicKey publicKey) {
-		Cipher cipher = null;
-		byte[] encrypted;
+	// 	public byte[] encrypt(byte[] data, PublicKey publicKey) {
+	// 	Cipher cipher = null;
+	// 	byte[] encrypted;
 
-		try {
-			cipher = Cipher.getInstance("RSA");
-			cipher.init(Cipher.ENCRYPT_MODE, publicKey, new SecureRandom());
-			encrypted = cipher.doFinal(data);
-		} catch (GeneralSecurityException e) {
-			throw new RuntimeException(e);
-			// graceful exit
-		}
+	// 	try {
+	// 		cipher = Cipher.getInstance("RSA");
+	// 		cipher.init(Cipher.ENCRYPT_MODE, publicKey, new SecureRandom());
+	// 		encrypted = cipher.doFinal(data);
+	// 	} catch (GeneralSecurityException e) {
+	// 		throw new RuntimeException(e);
+	// 		// graceful exit
+	// 	}
     	
-		return encrypted;
-	}
+	// 	return encrypted;
+	// }
 
-	public byte[] decrypt(byte[] encryptedData, PrivateKey privateKey) {
-		Cipher cipher = null;
-		byte[] decrypted;
+	// public byte[] decrypt(byte[] encryptedData, PrivateKey privateKey) {
+	// 	Cipher cipher = null;
+	// 	byte[] decrypted;
 
-		try {
-			cipher = Cipher.getInstance("RSA");
-    		cipher.init(Cipher.DECRYPT_MODE, privateKey);
+	// 	try {
+	// 		cipher = Cipher.getInstance("RSA");
+    // 		cipher.init(Cipher.DECRYPT_MODE, privateKey);
 
-			decrypted = cipher.doFinal(encryptedData);
-		} catch (GeneralSecurityException e) {
-			throw new RuntimeException(e);
-			// graceful exit
-		}
+	// 		decrypted = cipher.doFinal(encryptedData);
+	// 	} catch (GeneralSecurityException e) {
+	// 		throw new RuntimeException(e);
+	// 		// graceful exit
+	// 	}
     	
-		return decrypted;
-	}
+	// 	return decrypted;
+	// }
 }

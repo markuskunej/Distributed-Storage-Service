@@ -4,6 +4,7 @@ import java.io.Serializable;
 import org.apache.commons.lang3.SerializationUtils;
 import shared.messages.KVMessage;
 import shared.messages.IKVMessage.StatusType;
+import shared.Crypto;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -69,7 +70,17 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 	private static PrivateKey serverPrivateKey;
 	private static PublicKey serverPublicKey;
 
-	static {
+	/**
+	 * Initialize KVStore with address and port of KVServer
+	 * 
+	 * @param address the address of the KVServer
+	 * @param port    the port of the KVServer
+	 */
+	public KVStore(String address, int port) {
+		this.address = address;
+		this.port = port;
+		this.streamsOpen = false;
+
 		// Generate public/private key
 		KeyPairGenerator kpg = null;
 		try {
@@ -83,18 +94,9 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		KeyPair clientKeyPair = kpg.generateKeyPair();
 		clientPrivateKey = clientKeyPair.getPrivate();
 		clientPublicKey = clientKeyPair.getPublic();
-	}
+		logger.info("\nGenerated Private Key: '" +  Base64.getEncoder().encodeToString(clientPrivateKey.getEncoded()) + "'\n");
+		logger.info("\nGenerated Public Key: '" +  Base64.getEncoder().encodeToString(clientPublicKey.getEncoded()) + "'\n");
 
-	/**
-	 * Initialize KVStore with address and port of KVServer
-	 * 
-	 * @param address the address of the KVServer
-	 * @param port    the port of the KVServer
-	 */
-	public KVStore(String address, int port) {
-		this.address = address;
-		this.port = port;
-		this.streamsOpen = false;
 	}
 
 	/**
@@ -110,11 +112,9 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 				try {
 					KVMessage latestMsg;
 					if (serverPublicKey != null) {
-						logger.info("ENCRYPTED BEFORE RECEIVE");
-						latestMsg = receiveEncryptedMessage();
+						latestMsg = Crypto.receiveEncryptedMessage(input, clientPrivateKey);
 					} else {
 						// hasn't received server's public key, assume message is unecrypted
-						logger.info("NOT ENCRYPTED BEFORE RECEIVE");
 						latestMsg = receiveMessage(false);
 					}
 					for (ClientSocketListener listener : listeners) {
@@ -211,13 +211,7 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 
 	public void setServerPublicKey(String key){
 		try{
-			//byte[] byteKey = Base64.decode(key.getBytes());
-			logger.debug("Key is" + key);
-			byte[] byteKey = Base64.getDecoder().decode(key);
-			X509EncodedKeySpec X509publicKey = new X509EncodedKeySpec(byteKey);
-			KeyFactory kf = KeyFactory.getInstance("RSA");
-
-			this.serverPublicKey = kf.generatePublic(X509publicKey);
+			this.serverPublicKey = Crypto.strToPublicKey(key);
 		}
 		catch(Exception e){
 			e.printStackTrace();
@@ -233,98 +227,6 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		listeners.add(listener);
 	}
 
-	public static byte[] encrypt(byte[] data, PublicKey publicKey) {
-		try {
-			// Generate a random symmetric key
-			KeyGenerator keyGen = KeyGenerator.getInstance("AES");
-			keyGen.init(128);
-			SecretKey secretKey = keyGen.generateKey();
-
-			// Encrypt the message with the symmetric key
-			Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-			byte[] ivByte = new byte[cipher.getBlockSize()];
-            IvParameterSpec ivParamsSpec = new IvParameterSpec(ivByte);
-			cipher.init(Cipher.ENCRYPT_MODE, secretKey, ivParamsSpec);
-			byte[] encryptedData = cipher.doFinal(data);
-
-			// Encrypt the symmetric key with the RSA public key
-			Cipher rsaCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-			rsaCipher.init(Cipher.ENCRYPT_MODE, publicKey);
-			byte[] encryptedKey = rsaCipher.doFinal(secretKey.getEncoded());
-
-			// Combine the encrypted key and the encrypted message
-			byte[] result = new byte[encryptedKey.length + encryptedData.length + Integer.BYTES];
-			ByteBuffer bb = ByteBuffer.wrap(result);
-			bb.putInt(encryptedKey.length);
-			bb.put(encryptedKey);
-			bb.put(encryptedData);
-			return result;
-		} catch (GeneralSecurityException e) {
-			throw new RuntimeException(e);
-		}
-	}
-
-	public byte[] decrypt(ByteBuffer bb, PrivateKey privateKey) {
-		try {
-			//ByteBuffer bb = ByteBuffer.wrap(combinedData);
-			int encryptedKeyLength = bb.getInt();
-			byte[] encryptedKey = new byte[encryptedKeyLength];
-			bb.get(encryptedKey);
-
-			byte[] encryptedData = new byte[bb.remaining()];
-			bb.get(encryptedData);
-
-			// Decrypt the symmetric key with the RSA private key
-			Cipher rsaCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-			rsaCipher.init(Cipher.DECRYPT_MODE, privateKey);
-			byte[] decryptedKey = rsaCipher.doFinal(encryptedKey);
-			SecretKey secretKey = new SecretKeySpec(decryptedKey, "AES");
-
-			// Decrypt the message with the symmetric key
-			Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-			byte[] ivByte = new byte[cipher.getBlockSize()];
-            IvParameterSpec ivParamsSpec = new IvParameterSpec(ivByte);
-			cipher.init(Cipher.DECRYPT_MODE, secretKey, ivParamsSpec);
-			return cipher.doFinal(encryptedData);
-		} catch (GeneralSecurityException e) {
-			throw new RuntimeException(e);
-		}
-	}
-
-
-	// public byte[] encrypt(byte[] data, PublicKey publicKey) {
-	// 	Cipher cipher = null;
-	// 	byte[] encrypted;
-
-	// 	try {
-	// 		cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-	// 		cipher.init(Cipher.ENCRYPT_MODE, publicKey, new SecureRandom());
-	// 		encrypted = cipher.doFinal(data);
-	// 	} catch (GeneralSecurityException e) {
-	// 		throw new RuntimeException(e);
-	// 		// graceful exit
-	// 	}
-    	
-	// 	return encrypted;
-	// }
-
-	// public byte[] decrypt(byte[] encryptedData, PrivateKey privateKey) {
-	// 	Cipher cipher = null;
-	// 	byte[] decrypted;
-
-	// 	try {
-	// 		cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-    // 		cipher.init(Cipher.DECRYPT_MODE, privateKey);
-
-	// 		decrypted = cipher.doFinal(encryptedData);
-	// 	} catch (GeneralSecurityException e) {
-	// 		throw new RuntimeException(e);
-	// 		// graceful exit
-	// 	}
-    	
-	// 	return decrypted;
-	// }
-
 	@Override
 	public void sendMessage(KVMessage msg) throws IOException {
 		//byte[] msgBytes = SerializationUtils.serialize(msg);
@@ -332,66 +234,21 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		//byte[] msgBytes = Base64.getDecoder().decode(msg.getMsg());
 		if (serverPublicKey != null) {
 			// Encrypt the KVMessage bytes
-			msgBytes = encrypt(msgBytes, serverPublicKey); // serverPublicKey
-			logger.info("encrypted msgBytes is " + Arrays.toString(msgBytes));
+			msgBytes = Crypto.encrypt(msgBytes, serverPublicKey); // serverPublicKey
+			//logger.info("encrypted msgBytes is " + Arrays.toString(msgBytes));
 			logger.info(msgBytes.length);
 		} else {
 			logger.error("Error! Tried to send a message before receiving the server public key!");
 		}
-		/****************************************************************************
-		 * In the encrypt call above, clientPublicKey should be the serverPublicKey *
-		 * of the server the message is being sent to.								*
-		 ****************************************************************************/
 
-		//logger.debug("msgBytes = null is " + (msgBytes == null));
-		//logger.debug("output = null is " + (output == null));
-		output.write(msgBytes, 0, msgBytes.length); // output.write(msgBytes, 0, msgBytes.length);
+		output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
-		logger.info("Send message:\t '" + msg.getMsg() + "'");
-	}
-
-	private KVMessage receiveEncryptedMessage() throws IOException {
-		// byte[] msgBytes = input.readAllBytes();
-		// logger.info("msgBytes is " + Arrays.toString(msgBytes));
-		// logger.info(msgBytes.length);
-		    // Read the length of the encrypted key
-		// read the length of the encrypted key
-		byte[] lengthBytes = new byte[4];
-		input.read(lengthBytes);
-		ByteBuffer lengthByteBuffer = ByteBuffer.wrap(lengthBytes);
-		int encryptedKeyLength = lengthByteBuffer.getInt();
-
-		// read the encrypted key
-		byte[] encryptedKey = new byte[encryptedKeyLength];
-		input.read(encryptedKey);
-		ByteBuffer keyByteBuffer = ByteBuffer.wrap(encryptedKey);
-
-		// read the encrypted message
-		byte[] encryptedMessage = new byte[input.available()];
-		input.read(encryptedMessage);
-		ByteBuffer messageByteBuffer = ByteBuffer.wrap(encryptedMessage);
-
-		// combine the encrypted key and message byte buffers
-		ByteBuffer combinedByteBuffer = ByteBuffer.allocate(encryptedKeyLength + encryptedMessage.length + Integer.BYTES);
-		combinedByteBuffer.putInt(encryptedKey.length);
-		combinedByteBuffer.put(encryptedKey);
-		combinedByteBuffer.put(encryptedMessage);
-		combinedByteBuffer.flip();
-		logger.info("msgBytes is " + Arrays.toString(combinedByteBuffer.array()));
-		logger.info(combinedByteBuffer.array().length);
-		// Decrypt here
-		byte[] msgBytesDecrypted = decrypt(combinedByteBuffer, clientPrivateKey);
-		KVMessage receivedMsg = new KVMessage(msgBytesDecrypted); // KVMessage receivedMsg = new KVMessage(msgBytes);
-
-		/* build final String */
-		logger.info("Receive message:\t '" + receivedMsg.getMsg() + "'");
-
-		return receivedMsg; 
+		logger.info("Send message:\t '" + msg.getMsg() + "'\n");
+		//logger.info("Raw sent message:\t '" + Arrays.toString(msgBytes) + "'\n");
 	}
 
 	@Override
 	public KVMessage receiveMessage(boolean encrypted) throws IOException {
-		// Decrypt the bytes received
 
 		int index = 0;
 		byte[] msgBytes = null, tmp = null;
@@ -445,19 +302,10 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		}
 
 		msgBytes = tmp;
-		logger.debug("msgBytes is " + Arrays.toString(msgBytes));
-		// if (encrypted==true) {
-		// 	// Decrypt here
-		// 	msgBytes = decrypt(msgBytes, clientPrivateKey);
-		// }
-		/***********************************************************************
-		 * In the decrypt call above, clientPrivateKey is correct - the client *
-		 * decrypts the data with its own private key	   					   *
-		 ***********************************************************************/
 
-		//KVMessage receivedMsg = (KVMessage) SerializationUtils.deserialize(msgBytes);
-		KVMessage msg = new KVMessage(msgBytes); //KVMessage msg = new KVMessage(msgBytes);
+		KVMessage msg = new KVMessage(msgBytes);
 		logger.info("Receive message:\t '" + msg.getMsg() + "'");
+		//logger.info("Raw received message:\t '" + Arrays.toString(msgBytes) + "'\n");
 
 		return msg;
 	}
@@ -591,43 +439,6 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 			return null;
 		}
 	}
-
-	// public void serverNotResponsible (KVMessage msg) {
-	// 	// disconnect from current server
-	// 	tearDownConnection();
-	// 	// get responsible server
-	// 	if (msg.getStatus() == StatusType.GET) {
-	// 		String respServer = getResponsible(msg.getKey(), false);
-	// 	} else if (msg.getStatus() == StatusType.PUT) {
-	// 		String respServer = getResponsible(msg.getKey(), true);
-	// 	}
-	// 	// connect to it
-	// 	String[] server_arr = respServer.split(":");
-	// 	changeConnection(server_arr[0], Integer.parseInt(server_arr[1]));
-	// 	while (!areStreamsOpen()) {
-	// 		Thread.sleep(50);
-	// 	}
-	// 	//retry operation
-	// 	if (msg.getStatus() == StatusType.GET) {
-	// 		get(msg.getKey());
-	// 	} else if (msg.getStatus() == StatusType.PUT) {
-	// 		put(msg.getKey(), msg.getValue());
-	// 	}
-	// }
-	// public void retryOperation(KVMessage msg) throws Exception {
-	// 	// disconnect from current server
-	// 	disconnect();
-	// 	// find responsible server according to metadata and set address and port to it
-	// 	getResponsible(msg.getKey());
-	// 	// connect to new server
-	// 	try {
-	// 		connect();
-	// 	} catch (Exception e) {
-	// 		logger.error("Unable to connect to responsible server according to metadata, trying other servers until connected.");
-	// 		connectOnLoss();
-	// 	}
-	// 	sendMessage(msg);
-	// }
 
 	private void connectOnLoss() {
 		// If a connection is lost, try to reconnect with appropriate metadata

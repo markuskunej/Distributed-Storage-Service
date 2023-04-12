@@ -28,17 +28,7 @@ import logger.LogSetup;
 import shared.messages.ECSMessage;
 import shared.messages.IECSMessage.StatusType;
 
-// Encryption Imports
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.PrivateKey;
-import java.security.PublicKey;
-import java.security.SecureRandom;
-import javax.crypto.Cipher;
-
-import java.security.GeneralSecurityException;
-
-public class ECSClient extends Thread implements IECSClient {
+public class ECSClient extends Thread {
 
     private static Logger logger = Logger.getRootLogger();
     private ServerSocket ECSServerSocket;
@@ -46,28 +36,7 @@ public class ECSClient extends Thread implements IECSClient {
     private String addr;
     private int port;
     private TreeMap<String, String> metadata;
-    //private HashMap<String, Socket> socketMap = new HashMap<>();
     private HashMap<String, KVServerConnection> connectionMap = new HashMap<>();
-
-    private static PrivateKey ECSPrivateKey;
-    private static PublicKey ECSPublicKey;
-
-    private static PrivateKey serverPrivateKey;
-	private static PublicKey serverPublicKey;
-
-	static {
-		// Generate public/private key
-		KeyPairGenerator kpg = null;
-		try {
-			kpg = KeyPairGenerator.getInstance("RSA");
-		} catch (GeneralSecurityException e) {
-			throw new RuntimeException(e);
-		}	
-
-		KeyPair ECSKeyPair = kpg.generateKeyPair();
-		ECSPrivateKey = ECSKeyPair.getPrivate();
-		ECSPublicKey = ECSKeyPair.getPublic();
-	}
 
     public ECSClient(String addr, int port) {
 		this.port = port;
@@ -75,70 +44,16 @@ public class ECSClient extends Thread implements IECSClient {
         metadata = new TreeMap<String, String>();
 	}
 
-
-    @Override
-    public boolean shutdown() {
-        // TODO
-        return false;
-    }
-
-    @Override
-    public IECSNode addNode(String cacheStrategy, int cacheSize) {
-        // TODO
-        return null;
-    }
-
-    @Override
-    public Collection<IECSNode> addNodes(int count, String cacheStrategy, int cacheSize) {
-        // TODO
-        return null;
-    }
-
     public void addServer(String server_name) {
         addToMetaData(server_name);
-    }
-
-    @Override
-    public Collection<IECSNode> setupNodes(int count, String cacheStrategy, int cacheSize) {
-        // TODO
-        return null;
-    }
-
-    @Override
-    public boolean awaitNodes(int count, int timeout) throws Exception {
-        // TODO
-        return false;
-    }
-
-    @Override
-    public boolean removeNodes(Collection<String> nodeNames) {
-        // TODO
-        return false;
-    }
-
-    @Override
-    public Map<String, IECSNode> getNodes() {
-        // TODO
-        return null;
-    }
-
-    @Override
-    public IECSNode getNodeByKey(String Key) {
-        // TODO
-        return null;
     }
 
     private String hash(String input_str) {
         return DigestUtils.md5Hex(input_str);
     }
 
-    // public void addToConnections(String server_name, KVServerConnection conn) {
-    //     connectionMap.put(server_name, conn);
-    // }
     public void removeFromConnections(String key) {
-        //logger.info("removing " + key + " from connectionsMap.");
         connectionMap.remove(key);
-        //logger.info("New Connection Map is: " + connectionMap.toString());
     }
 
     public void updateConnectionMap(String oldKey, String newKey) {
@@ -147,13 +62,11 @@ public class ECSClient extends Thread implements IECSClient {
             logger.error("ERROR! Cannot update the connection map because the old key had no connection value");
         } else {
             connectionMap.put(newKey, conn);
-            //logger.info("New Connection Map is: " + connectionMap.toString());
         }
     }
 
     public void addToMetaData(String server_ip_port) {
         String hash_value = hash(server_ip_port);
-        //logger.info("hash is " + hash_value);
         this.metadata.put(hash_value, server_ip_port);
         logger.info("Added " + server_ip_port + " to metadata.");
     }
@@ -164,7 +77,6 @@ public class ECSClient extends Thread implements IECSClient {
             for (Map.Entry<String, KVServerConnection> conn_entry : connectionMap.entrySet()) {
                 try {
                     conn_entry.getValue().sendMessage(metadata_msg);
-                    //sendMessage(sock_entry.getValue(), metadata_msg);
                 } catch (IOException ioe) {
                     logger.error("Error! Unable to send metadata update to server: " + conn_entry.getKey());
                 }
@@ -230,16 +142,11 @@ public class ECSClient extends Thread implements IECSClient {
 					Socket kvServer = ECSServerSocket.accept();
                     String serverName = kvServer.getInetAddress().getHostAddress() + ":" + kvServer.getPort();
                     String tempName = Integer.toString(kvServer.getPort());
-                    //socketMap.put(serverName, kvServer);
 					KVServerConnection connection = new KVServerConnection(kvServer, this, tempName);
-					//String serverName = kvServer.getInetAddress().getHostAddress() + ":" + kvServer.getLocalPort();
-                    //logger.info("temp name is " + tempName);
-                    //addToMetaData(serverName);
+
                     connectionMap.put(connection.getServerName(), connection);	
-                    //logger.info("New Connection Map is: " + connectionMap.toString());				
 
                     new Thread(connection).start();
-                    //connectionMap.put(connection.getServerName(), connection);	
                     logger.info("Connected to "
 							+ kvServer.getInetAddress().getHostName()
 							+ " on port " + kvServer.getLocalPort() + "\n");
@@ -257,11 +164,7 @@ public class ECSClient extends Thread implements IECSClient {
 
     // send a message to the server that will be transferring data to another server
     public void invokeTransferTo(String srcServer, String destServer, String coordinatorServer) {
-        //logger.info("srcServer is " + srcServer);
-        //logger.info("connectioMap is " + connectionMap.toString());
         KVServerConnection connection = connectionMap.get(srcServer);
-        //Socket successorSocket = socketMap.get(srcServer);
-        //logger.info("invokeTransferTo before if " + connection);
         String servers = coordinatorServer + ',' + destServer;
         if (connection != null) {
             try {
@@ -416,25 +319,6 @@ public class ECSClient extends Thread implements IECSClient {
 	}
 
     public static void main(String[] args) throws Exception {
-		// String address_str;
-		// int port_int;
-        
-        // System.out.println(args[2].equals("-p"));
-		// if ((args.length == 6) && (args[0].equals("-a")) && (args[2].equals("-p")) && (args[4].equals("-ll"))) {
-		// 	try {
-        //         new LogSetup("logs/ecs.log", Level.ALL);
-        //     } catch (IOException e) {
-        //         System.out.println("Error! Unable to initialize logger!");
-        //         e.printStackTrace();
-        //         System.exit(1);
-        //     }
-        //     address_str = args[1];
-		// 	port_int = Integer.parseInt(args[3]);
-
-		// 	new ECSClient(address_str, port_int).start();
-		// } else {
-		// 	System.out.println("Error! Incorrect arguments. Expected -b <ecs_ip>:<ecs_address> -a <address> -p <port> -ll <logLevel>");
-		// }
         Options options = new Options();
 
         Option address = new Option("a", "address", true, "ECS IP adress");

@@ -35,6 +35,7 @@ import shared.messages.IKVMessage;
 import shared.messages.KVMessage;
 import shared.messages.IKVMessage.StatusType;
 import shared.messages.IECSMessage;
+import shared.Crypto;
 
 import java.util.Base64;
 import java.util.ArrayList;
@@ -92,22 +93,6 @@ public class KVServer extends Thread implements IKVServer {
 	private PublicKey clientPublicKey;
 	private PublicKey otherServerPublicKey;
 
-	static {
-		// Generate public/private key
-		KeyPairGenerator kpg = null;
-		try {
-			kpg = KeyPairGenerator.getInstance("RSA");
-			SecureRandom random = new SecureRandom();
-			kpg.initialize(2048, random); // 2048-bit key
-		} catch (GeneralSecurityException e) {
-			throw new RuntimeException(e);
-		}	
-
-		KeyPair serverKeyPair = kpg.generateKeyPair();
-		serverPrivateKey = serverKeyPair.getPrivate();
-		serverPublicKey = serverKeyPair.getPublic();
-	}
-
 	/**
 	 * Start KV Server at given port
 	 * 
@@ -139,25 +124,28 @@ public class KVServer extends Thread implements IKVServer {
 		this.cache = new Properties();
 
 		this.lfuFreq = new ArrayList<Integer>();
+
+		// Generate public/private key
+		KeyPairGenerator kpg = null;
+		try {
+			kpg = KeyPairGenerator.getInstance("RSA");
+			SecureRandom random = new SecureRandom();
+			kpg.initialize(2048, random); // 2048-bit key
+		} catch (GeneralSecurityException e) {
+			throw new RuntimeException(e);
+		}	
+
+		KeyPair serverKeyPair = kpg.generateKeyPair();
+		serverPrivateKey = serverKeyPair.getPrivate();
+		serverPublicKey = serverKeyPair.getPublic();
+
+		logger.info("\nGenerated Private Key: '" +  Base64.getEncoder().encodeToString(serverPrivateKey.getEncoded()) + "'\n");
+		logger.info("\nGenerated Public Key: '" +  Base64.getEncoder().encodeToString(serverPublicKey.getEncoded()) + "'\n");	
 	}
 
 	@Override
 	public int getPort() {
 		return this.port;
-	}
-
-	@Override
-	public String getHostname() {
-		// try {
-		// InetAddress sv = InetAddress.getLocalHost();
-
-		// return sv.getHostName();
-		// } catch (UnknownHostException ex) {
-		// logger.error("Error! Unknown Host. \n", ex);
-
-		// return null;
-		// }
-		return null;
 	}
 
 	public String getNameServer() {
@@ -176,27 +164,15 @@ public class KVServer extends Thread implements IKVServer {
 		return serverPrivateKey;
 	}
 
-	private PublicKey strToPublicKey (String key) {
-		try {
-			X509EncodedKeySpec X509publicKey = new X509EncodedKeySpec(key.getBytes());
-			KeyFactory kf = KeyFactory.getInstance("RSA");
-
-			return kf.generatePublic(X509publicKey);
-		} catch (Exception e) {
-			e.printStackTrace();
-			return null;
-		}
-	}
-
 	public void setClientPublicKey(String key){
 			//byte[] byteKey = Base64.getDecoder()(key.getBytes());
-		this.clientPublicKey = strToPublicKey(key);
+		this.clientPublicKey = Crypto.strToPublicKey(key);
 	}
 
 	public void setOtherServerPublicKey(String key){
 		try{
 			//byte[] byteKey = Base64.getDecoder()(key.getBytes());
-			this.otherServerPublicKey = strToPublicKey(key);
+			this.otherServerPublicKey = Crypto.strToPublicKey(key);
 		}
 		catch(Exception e){
 			e.printStackTrace();
@@ -293,48 +269,9 @@ public class KVServer extends Thread implements IKVServer {
 		this.write_lock = lock;
 	}
 
-	@Override
-	public boolean inStorage(String key) {
-		// try {
-		// // boolean exists = (storage.getKV(key) != null);
-		// boolean exists = false;
-
-		// if (exists) {
-		// logger.info("Key :: " + key + " found in storage. \n");
-		// } else {
-		// logger.info("Key :: " + key + " not found in storage. \n");
-		// }
-
-		// return exists;
-
-		// } catch (Exception e) {
-		// logger.error("IO Failure. \n", e);
-
-		// return false;
-		// }
-		return false;
-	}
-
 	private String hash(String input_str) {
         return DigestUtils.md5Hex(input_str);
     }
-
-	@Override
-	public boolean inCache(String key) {
-		if (this.strategy == CacheStrategy.None) {
-			return false;
-		}
-
-		// boolean exists = (cache.getKV(key) != null);
-		boolean exists = false;
-		if (exists) {
-			logger.info("Key :: " + key + " found in cache. \n");
-		} else {
-			logger.info("Key :: " + key + " not found in cache. \n");
-		}
-
-		return exists;
-	}
 
 	public boolean isResponsible (String key, boolean isWrite) {
 		if (isWrite) {
@@ -570,10 +507,6 @@ public class KVServer extends Thread implements IKVServer {
 	@Override
 	public synchronized StatusType putKV(String key, String value) throws Exception {
 		// check if value is null - delete operation
-
-		// NEW - for encryption, strings cannot be empty ("")
-		// "" has been replaced with "EMPTY STRING"
-
 		if (value == null || value == "" || value == "EMPTY STRING") {
 			// check if value is in cache
 			String val = cache.getProperty(key);
@@ -815,9 +748,8 @@ public class KVServer extends Thread implements IKVServer {
 	}
 
 	public void sendServerMessage(KVMessage msg) {
-		//logger.info("in send Server Message");
-		if (serverMsgHandler != null && otherServerPublicKey != null)  {
-			//logger.info("in send Server Message, handler not null");
+		logger.info("Before sendServerMessage");
+		if (serverMsgHandler != null)  {
 			try {
 				serverMsgHandler.sendMessage(msg);
 			} catch (IOException ioe) {
@@ -858,9 +790,6 @@ public class KVServer extends Thread implements IKVServer {
 
 	public String getKvsToTransfer(String successorServer) {
 		StringBuilder kv_pairs = new StringBuilder();
-		
-		//logger.info("successor server is " + successorServer);
-
 		String successorHash = hash(successorServer);
 		// transfer
 		try (InputStream input = new FileInputStream(fileName)) {
@@ -874,9 +803,7 @@ public class KVServer extends Thread implements IKVServer {
 			
 			while (enu.hasMoreElements()) {
 				String key = (String) enu.nextElement();
-				String hash_key = hash(key);
-				//logger.info("key hash = " + hash_key + ", successorHash = " + successorHash + ", serverHash = " + serverHash);
-				
+				String hash_key = hash(key);				
 				// either the hash key is larger than the successor's hash, or both the server and successor hashes are larger than the key hash
 				// i.e. the key hash is just over 0 on the hash ring, and both the other server are to the left of the 0.
 				// see if current server would no llonger be responsible for 
@@ -954,24 +881,6 @@ public class KVServer extends Thread implements IKVServer {
 			logger.error("Error in KVServer.insertKvPairs");
 		}
 	}
-	@Override
-	public void clearCache() {
-		logger.info("Clear Cache. \n");
-		if (this.strategy != CacheStrategy.None) {
-			// cache.clear();
-		}
-	}
-
-	@Override
-	public void clearStorage() {
-		try {
-			clearCache();
-			logger.info("Clear Storage. \n");
-			// storage.clear();
-		} catch (Exception e) {
-			logger.error("Cannot clear Storage. \n", e);
-		}
-	}
 
 	public void deleteKvPairs(String kv_pairs) {
 		try {
@@ -998,32 +907,6 @@ public class KVServer extends Thread implements IKVServer {
 		running = initializeServer();
 
 		try {
-			// ecs_output = ecsSocket.getOutputStream();
-			// ecs_input = ecsSocket.getInputStream();
-
-			// try {
-			// 	// request metadata from ecs server
-			// 	sendMessageToECS(new ECSMessage("placeholder", IECSMessage.StatusType.METADATA));
-			// } catch (IOException ioe) {
-			// 	logger.error("Error! Connection to ECS lost while trying to get initial metadata!");
-			// }
-
-			// new thread to handle incoming ECS messages
-
-			// new Thread(() -> {
-			// 	while(isRunning()) {
-			// 		try {
-			// 			// see if new message from ECS
-			// 			ECSMessage latestECSMsg = receiveMessageFromECS();
-			// 			handleECSMessage(latestECSMsg);
-			// 		} catch (IOException ioe) {
-			// 			logger.error("Error! Connection to ECS lost!");
-			// 		} catch (Exception e) {
-			// 			logger.error("Error! Connection to ECS lost!");
-			// 		}
-			// 	}
-			// }).start();
-
 			if (serverSocket != null) {
 				try {
 					connectToECS();
@@ -1050,15 +933,6 @@ public class KVServer extends Thread implements IKVServer {
 						logger.error("Error! " +
 								"Unable to establish connection. \n", e);
 					}
-					// try {
-					// 	// see if new message from ECS
-					// 	ECSMessage latestECSMsg = receiveMessageFromECS();
-					// 	handleECSMessage(latestECSMsg);
-					// } catch (IOException ioe) {
-					// 	logger.error("Error! Connection to ECS lost!");
-					// } catch (Exception e) {
-					// 	logger.error("Error! Connection to ECS lost!");
-					// }
 				}
 			}
 			logger.info("Server stopped.");
@@ -1075,10 +949,8 @@ public class KVServer extends Thread implements IKVServer {
 	@Override
 	public void kill() {
 		this.running = false;
-
 		try {
 			logger.info("Terminating Server. \n");
-
 			serverSocket.close();
 		} catch (IOException e) {
 			logger.error("Error! Termination failure on port: " + port, e);
@@ -1125,13 +997,6 @@ public class KVServer extends Thread implements IKVServer {
             }
 		}
 	}
-	// public void sendMessageToServer(KVMessage msg) throws IOException {
-	// 	//byte[] msgBytes = SerializationUtils.serialize(msg);
-	// 	byte[] msgBytes = msg.getMsgBytes();
-	// 	output.write(msgBytes, 0, msgBytes.length);
-	// 	output.flush();
-	// 	logger.info("Send message:\t '" + msg.getMsg() + "'");
-	// }
 
 	private boolean initializeServer() {
 		logger.info("Initialize KVServer ... \n");
@@ -1173,28 +1038,6 @@ public class KVServer extends Thread implements IKVServer {
 	
 
 	public static void main(String[] args) throws Exception{
-		// String ecs_ip_port;
-		// String address_str;
-		// int port_int;
-
-		// if ((args[0].equals("-a")) && (args[2].equals("-p")) && (args[4].equals("-LL")) && (args[6].equals("-d")) && 
-		// (args[8].equals("-s")) && (args[10].equals("-c")) && (args[12].equals("-b"))) {
-
-		// 	address_str = args[3];
-		// 	port_int = Integer.parseInt(args[5]);
-		// 	ecs_ip_port = args[13];
-		// 	try {
-		// 		new LogSetup("logs/server" + port_int + ".log", Level.ALL);
-		// 	} catch (IOException e) {
-		// 	System.out.println("Error! Unable to initialize logger!");
-		// 	e.printStackTrace();
-		// 	System.exit(1);
-		// 	}
-
-		// 	new KVServer(ecs_ip_port, address_str, port_int, 1, "None").start();
-		// } else {
-		// 	System.out.println("Error! Incorrect arguments. Expected -b <ecs_ip>:<ecs_address> -a <address> -p <port>");
-		// }
 		Options options = new Options();
 
 		Option ecs_address = new Option("b", "bootstrap", true, "ECS IP address and port <ip>:<port>");
@@ -1230,7 +1073,6 @@ public class KVServer extends Thread implements IKVServer {
         HelpFormatter formatter = new HelpFormatter();
 
         try {
-
 			//default values
 			Level log_level = Level.INFO;
 			String data_dir = "data";
@@ -1267,13 +1109,5 @@ public class KVServer extends Thread implements IKVServer {
 			formatter.printHelp("utility-name", options);
 			System.exit(1);
 		}
-		// } catch (ParseException e) {
-		// 	System.out.println(e.getMessage());
-		// 	formatter.printHelp("utility-name", options);
-		// 	System.exit(1);
-		// 	return;
-		// }
-
-		
     }
 }

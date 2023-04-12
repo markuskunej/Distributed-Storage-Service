@@ -17,6 +17,7 @@ import org.apache.commons.lang3.SerializationUtils;
 
 import shared.messages.KVMessage;
 import shared.messages.IKVMessage.StatusType;
+import shared.Crypto;
 import java.security.spec.X509EncodedKeySpec;
 import java.security.KeyFactory;
 import java.security.PrivateKey;
@@ -84,16 +85,15 @@ public class KVClientConnection implements Runnable {
 
 			// send server public key to client
 			String str_server_pub_key = Base64.getEncoder().encodeToString(kvServer.getPublicKey().getEncoded());
-			logger.info("base64 public key is " + str_server_pub_key);			
 			sendMessage(new KVMessage("", str_server_pub_key, StatusType.PUBLIC_KEY_SERVER), false, clientPublicKey);
 
 			// receive client (or other KVserver) public key
-			KVMessage publicKeyMsg = receiveEncryptedMessage();
+			KVMessage publicKeyMsg = Crypto.receiveEncryptedMessage(input, kvServer.getPrivateKey());
 			if (publicKeyMsg.getStatus() == StatusType.PUBLIC_KEY_CLIENT) {
-				this.clientPublicKey = strToPublicKey(publicKeyMsg.getValue());
+				this.clientPublicKey = Crypto.strToPublicKey(publicKeyMsg.getValue());
 				//kvServer.setClientPublicKey(clientPublicKeyMsg.getValue());
 			} else if (publicKeyMsg.getStatus() == StatusType.PUBLIC_KEY_SERVER) {
-				this.otherServerPublicKey = strToPublicKey(publicKeyMsg.getValue());
+				this.otherServerPublicKey = Crypto.strToPublicKey(publicKeyMsg.getValue());
 				//kvServer.setOtherServerPublicKey(clientPub)
 			} else {
 				logger.error("First message received wasn't a public key, close the server");
@@ -102,14 +102,12 @@ public class KVClientConnection implements Runnable {
 
 			while (isOpen) {
 				try {
-					KVMessage latestMsg = receiveEncryptedMessage();
+					KVMessage latestMsg = Crypto.receiveEncryptedMessage(input, kvServer.getPrivateKey());
 					KVMessage responseMsg = handleMessage(latestMsg);
 					// depending on whether the message was received from a client or server, encrypt with the correct public key
 					if (fromClient == true) {
-						logger.info("FROM CLIENT");
 						sendMessage(responseMsg, true, clientPublicKey);
 					} else {
-						logger.info("FROM SERVER");
 						sendMessage(responseMsg, true, otherServerPublicKey);
 					}
 
@@ -155,7 +153,7 @@ public class KVClientConnection implements Runnable {
 
 		if (encrypt==true) {
 			// Encrypt the KVMessage bytes
-			msgBytes = encrypt(msgBytes, key);
+			msgBytes = Crypto.encrypt(msgBytes, key);
 		}
 		/****************************************************************************
 		 * In the encrypt call above, serverPublicKey should be the clientPublicKey *
@@ -164,7 +162,7 @@ public class KVClientConnection implements Runnable {
 
 		output.write(msgBytes, 0, msgBytes.length); // output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
-		logger.info("msgBytes is " + Arrays.toString(msgBytes));
+		//logger.info("msgBytes is " + Arrays.toString(msgBytes));
 		logger.info(msgBytes.length);
 		logger.info("SEND \t<"
 				+ kvClientSocket.getInetAddress().getHostAddress() + ":"
@@ -172,46 +170,46 @@ public class KVClientConnection implements Runnable {
 				+ msg.getMsg() + "'");
 	}
 
-	private KVMessage receiveEncryptedMessage() throws IOException {
-		// byte[] msgBytes = input.readAllBytes();
-		// logger.info("msgBytes is " + Arrays.toString(msgBytes));
-		// logger.info(msgBytes.length);
-		    // Read the length of the encrypted key
-		// read the length of the encrypted key
-		byte[] lengthBytes = new byte[4];
-		input.read(lengthBytes);
-		ByteBuffer lengthByteBuffer = ByteBuffer.wrap(lengthBytes);
-		int encryptedKeyLength = lengthByteBuffer.getInt();
+	// private KVMessage receiveEncryptedMessage() throws IOException {
+	// 	// byte[] msgBytes = input.readAllBytes();
+	// 	// logger.info("msgBytes is " + Arrays.toString(msgBytes));
+	// 	// logger.info(msgBytes.length);
+	// 	    // Read the length of the encrypted key
+	// 	// read the length of the encrypted key
+	// 	byte[] lengthBytes = new byte[4];
+	// 	input.read(lengthBytes);
+	// 	ByteBuffer lengthByteBuffer = ByteBuffer.wrap(lengthBytes);
+	// 	int encryptedKeyLength = lengthByteBuffer.getInt();
 
-		// read the encrypted key
-		byte[] encryptedKey = new byte[encryptedKeyLength];
-		input.read(encryptedKey);
-		ByteBuffer keyByteBuffer = ByteBuffer.wrap(encryptedKey);
+	// 	// read the encrypted key
+	// 	byte[] encryptedKey = new byte[encryptedKeyLength];
+	// 	input.read(encryptedKey);
+	// 	ByteBuffer keyByteBuffer = ByteBuffer.wrap(encryptedKey);
 
-		// read the encrypted message
-		byte[] encryptedMessage = new byte[input.available()];
-		input.read(encryptedMessage);
-		ByteBuffer messageByteBuffer = ByteBuffer.wrap(encryptedMessage);
+	// 	// read the encrypted message
+	// 	byte[] encryptedMessage = new byte[input.available()];
+	// 	input.read(encryptedMessage);
+	// 	ByteBuffer messageByteBuffer = ByteBuffer.wrap(encryptedMessage);
 
-		// combine the encrypted key and message byte buffers
-		ByteBuffer combinedByteBuffer = ByteBuffer.allocate(encryptedKeyLength + encryptedMessage.length + Integer.BYTES);
-		combinedByteBuffer.putInt(encryptedKey.length);
-		combinedByteBuffer.put(encryptedKey);
-		combinedByteBuffer.put(encryptedMessage);
-		combinedByteBuffer.flip();
-		logger.info("msgBytes is " + Arrays.toString(combinedByteBuffer.array()));
-		logger.info(combinedByteBuffer.array().length);
-		// Decrypt here
-		byte[] msgBytesDecrypted = decrypt(combinedByteBuffer, kvServer.getPrivateKey());
-		KVMessage receivedMsg = new KVMessage(msgBytesDecrypted); // KVMessage receivedMsg = new KVMessage(msgBytes);
+	// 	// combine the encrypted key and message byte buffers
+	// 	ByteBuffer combinedByteBuffer = ByteBuffer.allocate(encryptedKeyLength + encryptedMessage.length + Integer.BYTES);
+	// 	combinedByteBuffer.putInt(encryptedKey.length);
+	// 	combinedByteBuffer.put(encryptedKey);
+	// 	combinedByteBuffer.put(encryptedMessage);
+	// 	combinedByteBuffer.flip();
+	// 	logger.info("msgBytes is " + Arrays.toString(combinedByteBuffer.array()));
+	// 	logger.info(combinedByteBuffer.array().length);
+	// 	// Decrypt here
+	// 	byte[] msgBytesDecrypted = decrypt(combinedByteBuffer, kvServer.getPrivateKey());
+	// 	KVMessage receivedMsg = new KVMessage(msgBytesDecrypted); // KVMessage receivedMsg = new KVMessage(msgBytes);
 
-		/* build final String */
-		logger.info("RECEIVE \t<"
-				+ kvClientSocket.getInetAddress().getHostAddress() + ":"
-				+ kvClientSocket.getPort() + ">: '"
-				+ receivedMsg.getMsg().trim() + "'");
-		return receivedMsg; 
-	}
+	// 	/* build final String */
+	// 	logger.info("RECEIVE \t<"
+	// 			+ kvClientSocket.getInetAddress().getHostAddress() + ":"
+	// 			+ kvClientSocket.getPort() + ">: '"
+	// 			+ receivedMsg.getMsg().trim() + "'");
+	// 	return receivedMsg; 
+	// }
 
 	// private KVMessage receiveMessage() throws IOException {
 
@@ -288,64 +286,64 @@ public class KVClientConnection implements Runnable {
 	// 	return receivedMsg;
 	// }
 
-	public byte[] encrypt(byte[] data, PublicKey publicKey) {
-		try {
-			// Generate a random symmetric key
-			KeyGenerator keyGen = KeyGenerator.getInstance("AES");
-			keyGen.init(128);
-			SecretKey secretKey = keyGen.generateKey();
+	// public byte[] encrypt(byte[] data, PublicKey publicKey) {
+	// 	try {
+	// 		// Generate a random symmetric key
+	// 		KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+	// 		keyGen.init(128);
+	// 		SecretKey secretKey = keyGen.generateKey();
 
-			// Encrypt the message with the symmetric key
-			Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-			byte[] ivByte = new byte[cipher.getBlockSize()];
-            IvParameterSpec ivParamsSpec = new IvParameterSpec(ivByte);
-			cipher.init(Cipher.ENCRYPT_MODE, secretKey, ivParamsSpec);
-			byte[] encryptedData = cipher.doFinal(data);
+	// 		// Encrypt the message with the symmetric key
+	// 		Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+	// 		byte[] ivByte = new byte[cipher.getBlockSize()];
+    //         IvParameterSpec ivParamsSpec = new IvParameterSpec(ivByte);
+	// 		cipher.init(Cipher.ENCRYPT_MODE, secretKey, ivParamsSpec);
+	// 		byte[] encryptedData = cipher.doFinal(data);
 
-			// Encrypt the symmetric key with the RSA public key
-			Cipher rsaCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-			rsaCipher.init(Cipher.ENCRYPT_MODE, publicKey);
-			byte[] encryptedKey = rsaCipher.doFinal(secretKey.getEncoded());
+	// 		// Encrypt the symmetric key with the RSA public key
+	// 		Cipher rsaCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+	// 		rsaCipher.init(Cipher.ENCRYPT_MODE, publicKey);
+	// 		byte[] encryptedKey = rsaCipher.doFinal(secretKey.getEncoded());
 
-			// Combine the encrypted key and the encrypted message
-			byte[] result = new byte[encryptedKey.length + encryptedData.length + Integer.BYTES];
-			ByteBuffer bb = ByteBuffer.wrap(result);
-			bb.putInt(encryptedKey.length);
-			bb.put(encryptedKey);
-			bb.put(encryptedData);
-			bb.flip();
-			return result;
-		} catch (GeneralSecurityException e) {
-			throw new RuntimeException(e);
-		}
-	}
+	// 		// Combine the encrypted key and the encrypted message
+	// 		byte[] result = new byte[encryptedKey.length + encryptedData.length + Integer.BYTES];
+	// 		ByteBuffer bb = ByteBuffer.wrap(result);
+	// 		bb.putInt(encryptedKey.length);
+	// 		bb.put(encryptedKey);
+	// 		bb.put(encryptedData);
+	// 		bb.flip();
+	// 		return result;
+	// 	} catch (GeneralSecurityException e) {
+	// 		throw new RuntimeException(e);
+	// 	}
+	// }
 
-	public byte[] decrypt(ByteBuffer bb, PrivateKey privateKey) {
-		try {
-			//ByteBuffer bb = ByteBuffer.wrap(combinedData);
-			int encryptedKeyLength = bb.getInt();
-			byte[] encryptedKey = new byte[encryptedKeyLength];
-			bb.get(encryptedKey);
+	// public byte[] decrypt(ByteBuffer bb, PrivateKey privateKey) {
+	// 	try {
+	// 		//ByteBuffer bb = ByteBuffer.wrap(combinedData);
+	// 		int encryptedKeyLength = bb.getInt();
+	// 		byte[] encryptedKey = new byte[encryptedKeyLength];
+	// 		bb.get(encryptedKey);
 
-			byte[] encryptedData = new byte[bb.remaining()];
-			bb.get(encryptedData);
+	// 		byte[] encryptedData = new byte[bb.remaining()];
+	// 		bb.get(encryptedData);
 
-			// Decrypt the symmetric key with the RSA private key
-			Cipher rsaCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-			rsaCipher.init(Cipher.DECRYPT_MODE, privateKey);
-			byte[] decryptedKey = rsaCipher.doFinal(encryptedKey);
-			SecretKey secretKey = new SecretKeySpec(decryptedKey, "AES");
+	// 		// Decrypt the symmetric key with the RSA private key
+	// 		Cipher rsaCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+	// 		rsaCipher.init(Cipher.DECRYPT_MODE, privateKey);
+	// 		byte[] decryptedKey = rsaCipher.doFinal(encryptedKey);
+	// 		SecretKey secretKey = new SecretKeySpec(decryptedKey, "AES");
 
-			// Decrypt the message with the symmetric key
-			Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-			byte[] ivByte = new byte[cipher.getBlockSize()];
-            IvParameterSpec ivParamsSpec = new IvParameterSpec(ivByte);
-			cipher.init(Cipher.DECRYPT_MODE, secretKey, ivParamsSpec);
-			return cipher.doFinal(encryptedData);
-		} catch (GeneralSecurityException e) {
-			throw new RuntimeException(e);
-		}
-	}
+	// 		// Decrypt the message with the symmetric key
+	// 		Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+	// 		byte[] ivByte = new byte[cipher.getBlockSize()];
+    //         IvParameterSpec ivParamsSpec = new IvParameterSpec(ivByte);
+	// 		cipher.init(Cipher.DECRYPT_MODE, secretKey, ivParamsSpec);
+	// 		return cipher.doFinal(encryptedData);
+	// 	} catch (GeneralSecurityException e) {
+	// 		throw new RuntimeException(e);
+	// 	}
+	// }
 
 
 	// public byte[] encrypt(byte[] data, PublicKey publicKey) {
@@ -382,18 +380,18 @@ public class KVClientConnection implements Runnable {
 	// 	return decrypted;
 	// }
 
-	private PublicKey strToPublicKey (String key) {
-		try {
-			byte[] keyAsBytes =  Base64.getDecoder().decode(key);
-			X509EncodedKeySpec X509publicKey = new X509EncodedKeySpec(keyAsBytes);
-			KeyFactory kf = KeyFactory.getInstance("RSA");
+	// private PublicKey strToPublicKey (String key) {
+	// 	try {
+	// 		byte[] keyAsBytes =  Base64.getDecoder().decode(key);
+	// 		X509EncodedKeySpec X509publicKey = new X509EncodedKeySpec(keyAsBytes);
+	// 		KeyFactory kf = KeyFactory.getInstance("RSA");
 
-			return kf.generatePublic(X509publicKey);
-		} catch (Exception e) {
-			e.printStackTrace();
-			return null;
-		}
-	}
+	// 		return kf.generatePublic(X509publicKey);
+	// 	} catch (Exception e) {
+	// 		e.printStackTrace();
+	// 		return null;
+	// 	}
+	// }
 
 	private KVMessage handleMessage(KVMessage msg) throws Exception {
 		// need to determine whether message is from client or other kvserver for encryption purposes
