@@ -94,8 +94,8 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 		KeyPair clientKeyPair = kpg.generateKeyPair();
 		clientPrivateKey = clientKeyPair.getPrivate();
 		clientPublicKey = clientKeyPair.getPublic();
-		logger.info("\nGenerated Private Key: '" +  Base64.getEncoder().encodeToString(clientPrivateKey.getEncoded()) + "'\n");
-		logger.info("\nGenerated Public Key: '" +  Base64.getEncoder().encodeToString(clientPublicKey.getEncoded()) + "'\n");
+		logger.info("Generated Private Key: '" +  Base64.getEncoder().encodeToString(clientPrivateKey.getEncoded()) + "'\r\n");
+		logger.info("Generated Public Key: '" +  Base64.getEncoder().encodeToString(clientPublicKey.getEncoded()) + "'\r\n");
 
 	}
 
@@ -236,14 +236,13 @@ public class KVStore extends Thread implements Serializable, KVCommInterface {
 			// Encrypt the KVMessage bytes
 			msgBytes = Crypto.encrypt(msgBytes, serverPublicKey); // serverPublicKey
 			//logger.info("encrypted msgBytes is " + Arrays.toString(msgBytes));
-			logger.info(msgBytes.length);
 		} else {
 			logger.error("Error! Tried to send a message before receiving the server public key!");
 		}
 
 		output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
-		logger.info("Send message:\t '" + msg.getMsg() + "'\n");
+		logger.info("Send message:\t '" + Base64.getEncoder().encodeToString(msgBytes) + "'\n");
 		//logger.info("Raw sent message:\t '" + Arrays.toString(msgBytes) + "'\n");
 	}
 

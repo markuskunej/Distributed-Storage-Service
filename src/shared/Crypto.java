@@ -53,11 +53,11 @@ public class Crypto {
 
                         // Logs for demo
             Encoder encoder = Base64.getEncoder();
-            logger.info("\n*SENT MESSAGE*");
-            logger.info("AES Key:\t '" + encoder.encodeToString(secretKey.getEncoded()) + "'");
-            logger.info("Encrypted AES Key:\t '" + encoder.encodeToString(encryptedKey) + "'");
-            logger.info("Message:\t '" + new String(data).trim() + "'");
-            logger.info("Encrypted Message:\t '" + encoder.encodeToString(encryptedData) + "'");
+            logger.info("\r\n*SENT MESSAGE*\r\n");
+            logger.info("AES Key:\t '" + encoder.encodeToString(secretKey.getEncoded()) + "'\r\n");
+            logger.info("Message:\t '" + new String(data).trim() + "'\r\n");
+            logger.info("Encrypted AES Key:\t '" + encoder.encodeToString(encryptedKey) + "'\r\n");
+            logger.info("Encrypted Message:\t '" + encoder.encodeToString(encryptedData) + "'\r\n");
 
             // Combine the encrypted key and the encrypted message
             byte[] result = new byte[encryptedKey.length + encryptedData.length + Integer.BYTES];
@@ -97,11 +97,11 @@ public class Crypto {
 
             // Logs for demo
             Encoder encoder = Base64.getEncoder();
-            logger.info("\n*RECEIVED MESSAGE*");
-            logger.info("Encrypted AES Key:\t '" + encoder.encodeToString(encryptedKey) + "'");
-            logger.info("Decrypted AES Key:\t '" + encoder.encodeToString(decryptedKey) + "'");
-            logger.info("Encrypted Message:\t '" + encoder.encodeToString(encryptedData) + "'");
-            logger.info("Decrypted Message:\t '" + new String(decryptedData).trim() + "'");
+            logger.info("\r\n*RECEIVED MESSAGE*\r\n");
+            logger.info("Encrypted AES Key:\t '" + encoder.encodeToString(encryptedKey) + "'\r\n");
+            logger.info("Encrypted Message:\t '" + encoder.encodeToString(encryptedData) + "'\r\n");
+            logger.info("Decrypted AES Key:\t '" + encoder.encodeToString(decryptedKey) + "'\r\n");
+            logger.info("Decrypted Message:\t '" + new String(decryptedData).trim() + "'\r\n");
 
             return decryptedData;
         } catch (GeneralSecurityException e) {
@@ -133,6 +133,7 @@ public class Crypto {
         combinedByteBuffer.put(encryptedMessage);
         combinedByteBuffer.flip();
         //logger.info("msgBytes is " + Arrays.toString(combinedByteBuffer.array()));
+        logger.info("Receive message:\t '" + Base64.getEncoder().encodeToString(combinedByteBuffer.array()) + "'");
         KVMessage receivedMsg;
         // Decrypt here, an empty message has length 4
         if (combinedByteBuffer.array().length != 4) {
@@ -143,7 +144,6 @@ public class Crypto {
         }
 
         /* build final String */
-        //logger.info("Receive message:\t '" + receivedMsg.getMsg() + "'");
 
         return receivedMsg; 
     }
